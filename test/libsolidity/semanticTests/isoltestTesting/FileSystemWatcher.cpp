@@ -1,97 +1,100 @@
 
 #include <iostream>
-#include <filesystem>
+#include <string>
 #include <chrono>
 #include <thread>
-#include <unordered_map>
-#include <string>
+#include <filesystem>
+#include <boost/asio.hpp>
+#include <boost/bind/bind.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
 
 namespace fs = std::filesystem;
 
-class SimpleFileWatcher {
+class FileSystemWatcher {
 public:
-    SimpleFileWatcher(const fs::path& watch_path, std::chrono::milliseconds interval)
-        : watch_path_(watch_path), interval_(interval), running_(false) {
-        if (!fs::exists(watch_path)) {
-            throw std::runtime_error("Watch path does not exist");
-        }
-        snapshot_ = take_snapshot();
+    FileSystemWatcher(boost::asio::io_service& io, const std::string& path, int interval_seconds = 1)
+        : timer_(io, boost::posix_time::seconds(interval_seconds)),
+          watch_path_(path),
+          interval_(interval_seconds) {
+        // Store initial state
+        update_file_map();
+        // Start the periodic check
+        timer_.async_wait(boost::bind(&FileSystemWatcher::check_files, this));
     }
 
-    void start() {
-        running_ = true;
-        watcher_thread_ = std::thread(&SimpleFileWatcher::watch_loop, this);
-    }
-
-    void stop() {
-        running_ = false;
-        if (watcher_thread_.joinable()) {
-            watcher_thread_.join();
+    void update_file_map() {
+        file_map_.clear();
+        for (const auto& entry : fs::recursive_directory_iterator(watch_path_)) {
+            if (fs::is_regular_file(entry.path())) {
+                auto last_write = fs::last_write_time(entry.path());
+                file_map_[entry.path().string()] = last_write;
+            }
         }
     }
 
-    ~SimpleFileWatcher() {
-        if (running_) {
-            stop();
+    void check_files() {
+        // Check for new or modified files
+        for (const auto& entry : fs::recursive_directory_iterator(watch_path_)) {
+            if (fs::is_regular_file(entry.path())) {
+                std::string path_str = entry.path().string();
+                auto current_time = fs::last_write_time(entry.path());
+
+                if (file_map_.find(path_str) == file_map_.end()) {
+                    std::cout << "[NEW] " << path_str << std::endl;
+                    file_map_[path_str] = current_time;
+                } else if (file_map_[path_str] != current_time) {
+                    std::cout << "[MODIFIED] " << path_str << std::endl;
+                    file_map_[path_str] = current_time;
+                }
+            }
         }
+
+        // Check for deleted files
+        auto it = file_map_.begin();
+        while (it != file_map_.end()) {
+            if (!fs::exists(it->first)) {
+                std::cout << "[DELETED] " << it->first << std::endl;
+                it = file_map_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        // Reset timer
+        timer_.expires_at(timer_.expires_at() + boost::posix_time::seconds(interval_));
+        timer_.async_wait(boost::bind(&FileSystemWatcher::check_files, this));
     }
 
 private:
-    using FileSnapshot = std::unordered_map<std::string, fs::file_time_type>;
-
-    FileSnapshot take_snapshot() {
-        FileSnapshot snapshot;
-        for (const auto& entry : fs::recursive_directory_iterator(watch_path_)) {
-            if (fs::is_regular_file(entry.status())) {
-                snapshot[entry.path().string()] = fs::last_write_time(entry);
-            }
-        }
-        return snapshot;
-    }
-
-    void watch_loop() {
-        while (running_) {
-            std::this_thread::sleep_for(interval_);
-            auto current_snapshot = take_snapshot();
-
-            for (const auto& [path, time] : current_snapshot) {
-                auto old_it = snapshot_.find(path);
-                if (old_it == snapshot_.end()) {
-                    std::cout << "[NEW] " << path << std::endl;
-                } else if (old_it->second != time) {
-                    std::cout << "[MODIFIED] " << path << std::endl;
-                }
-            }
-
-            for (const auto& [path, time] : snapshot_) {
-                if (current_snapshot.find(path) == current_snapshot.end()) {
-                    std::cout << "[DELETED] " << path << std::endl;
-                }
-            }
-
-            snapshot_ = std::move(current_snapshot);
-        }
-    }
-
-    fs::path watch_path_;
-    std::chrono::milliseconds interval_;
-    FileSnapshot snapshot_;
-    std::thread watcher_thread_;
-    std::atomic<bool> running_;
+    boost::asio::deadline_timer timer_;
+    std::string watch_path_;
+    int interval_;
+    std::unordered_map<std::string, fs::file_time_type> file_map_;
 };
 
-int main() {
-    try {
-        SimpleFileWatcher watcher(".", std::chrono::seconds(2));
-        watcher.start();
-
-        std::cout << "Watching current directory. Press Enter to stop..." << std::endl;
-        std::cin.get();
-
-        watcher.stop();
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <directory_to_watch>" << std::endl;
         return 1;
     }
+
+    std::string watch_directory = argv[1];
+    if (!fs::exists(watch_directory) || !fs::is_directory(watch_directory)) {
+        std::cerr << "Error: " << watch_directory << " is not a valid directory." << std::endl;
+        return 1;
+    }
+
+    try {
+        boost::asio::io_service io;
+        FileSystemWatcher watcher(io, watch_directory, 2); // Check every 2 seconds
+
+        std::cout << "Watching directory: " << watch_directory << std::endl;
+        std::cout << "Press Ctrl+C to stop..." << std::endl;
+
+        io.run();
+    } catch (std::exception& e) {
+        std::cerr << "Exception: " << e.what() << std::endl;
+    }
+
     return 0;
 }
