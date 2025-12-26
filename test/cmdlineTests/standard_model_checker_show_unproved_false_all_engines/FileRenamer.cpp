@@ -58,7 +58,8 @@ private:
 
 int main(int argc, char* argv[]) {
     if (argc != 3) {
-        std::cout << "Usage: " << argv[0] << " <directory_path> <name_prefix>" << std::endl;
+        std::cout << "Usage: " << argv[0] << " <directory_path> <prefix>" << std::endl;
+        std::cout << "Example: " << argv[0] << " ./photos vacation" << std::endl;
         return 1;
     }
 
@@ -66,5 +67,9 @@ int main(int argc, char* argv[]) {
     std::string prefix = argv[2];
 
     FileRenamer renamer(directory, prefix);
-    return renamer.renameFiles() ? 0 : 1;
+    if (!renamer.renameFiles()) {
+        return 1;
+    }
+
+    return 0;
 }
