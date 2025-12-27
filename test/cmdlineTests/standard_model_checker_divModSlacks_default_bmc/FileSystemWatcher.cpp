@@ -88,4 +88,45 @@ int main(int argc, char* argv[]) {
     }
 
     return 0;
+}#include <iostream>
+#include <filesystem>
+#include <chrono>
+#include <thread>
+
+namespace fs = std::filesystem;
+
+void watch_directory(const fs::path& dir_path) {
+    if (!fs::exists(dir_path) || !fs::is_directory(dir_path)) {
+        std::cerr << "Error: Path is not a valid directory." << std::endl;
+        return;
+    }
+
+    std::cout << "Watching directory: " << dir_path << std::endl;
+    std::cout << "Press Ctrl+C to stop." << std::endl;
+
+    auto last_write_time = fs::last_write_time(dir_path);
+
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+
+        try {
+            auto current_write_time = fs::last_write_time(dir_path);
+            if (current_write_time != last_write_time) {
+                last_write_time = current_write_time;
+                std::cout << "Directory modified at: "
+                          << std::chrono::system_clock::to_time_t(
+                                 std::chrono::file_clock::to_sys(last_write_time))
+                          << std::endl;
+            }
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Filesystem error: " << e.what() << std::endl;
+            break;
+        }
+    }
+}
+
+int main(int argc, char* argv[]) {
+    fs::path path_to_watch = (argc > 1) ? argv[1] : fs::current_path();
+    watch_directory(path_to_watch);
+    return 0;
 }
