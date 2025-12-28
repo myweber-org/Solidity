@@ -93,3 +93,89 @@ int main() {
 
     return 0;
 }
+#include <iostream>
+#include <filesystem>
+#include <chrono>
+#include <thread>
+#include <unordered_map>
+#include <string>
+
+namespace fs = std::filesystem;
+
+class SimpleFileWatcher {
+public:
+    using FileTimeMap = std::unordered_map<std::string, fs::file_time_type>;
+
+    explicit SimpleFileWatcher(const std::string& path) : watch_path_(path) {
+        if (fs::exists(path) && fs::is_directory(path)) {
+            last_state_ = getCurrentState();
+        }
+    }
+
+    void startWatching(int interval_seconds = 1) {
+        std::cout << "Watching directory: " << watch_path_ << std::endl;
+        
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
+            
+            auto current_state = getCurrentState();
+            
+            for (const auto& [filename, mod_time] : current_state) {
+                if (last_state_.find(filename) == last_state_.end()) {
+                    std::cout << "New file detected: " << filename << std::endl;
+                } else if (last_state_[filename] != mod_time) {
+                    std::cout << "File modified: " << filename << std::endl;
+                }
+            }
+            
+            for (const auto& [filename, mod_time] : last_state_) {
+                if (current_state.find(filename) == current_state.end()) {
+                    std::cout << "File deleted: " << filename << std::endl;
+                }
+            }
+            
+            last_state_ = current_state;
+        }
+    }
+
+private:
+    FileTimeMap getCurrentState() {
+        FileTimeMap current_state;
+        
+        try {
+            for (const auto& entry : fs::directory_iterator(watch_path_)) {
+                if (fs::is_regular_file(entry.path())) {
+                    auto filename = entry.path().filename().string();
+                    auto mod_time = fs::last_write_time(entry.path());
+                    current_state[filename] = mod_time;
+                }
+            }
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Filesystem error: " << e.what() << std::endl;
+        }
+        
+        return current_state;
+    }
+
+    std::string watch_path_;
+    FileTimeMap last_state_;
+};
+
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <directory_path>" << std::endl;
+        return 1;
+    }
+    
+    std::string watch_directory = argv[1];
+    
+    try {
+        SimpleFileWatcher watcher(watch_directory);
+        watcher.startWatching();
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+    
+    return 0;
+}
