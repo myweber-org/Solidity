@@ -1,62 +1,46 @@
-
 #include <iostream>
 #include <vector>
 
-template <typename T>
-class Matrix {
-private:
-    std::vector<std::vector<T>> data;
-    size_t rows;
-    size_t cols;
+std::vector<std::vector<int>> transposeMatrix(const std::vector<std::vector<int>>& matrix) {
+    if (matrix.empty()) return {};
 
-public:
-    Matrix(size_t r, size_t c) : rows(r), cols(c) {
-        data.resize(rows, std::vector<T>(cols, T()));
-    }
+    size_t rows = matrix.size();
+    size_t cols = matrix[0].size();
 
-    void fillRandom() {
-        for (size_t i = 0; i < rows; ++i) {
-            for (size_t j = 0; j < cols; ++j) {
-                data[i][j] = static_cast<T>(rand() % 100);
-            }
+    std::vector<std::vector<int>> result(cols, std::vector<int>(rows));
+
+    for (size_t i = 0; i < rows; ++i) {
+        for (size_t j = 0; j < cols; ++j) {
+            result[j][i] = matrix[i][j];
         }
     }
 
-    Matrix<T> transpose() const {
-        Matrix<T> result(cols, rows);
-        for (size_t i = 0; i < rows; ++i) {
-            for (size_t j = 0; j < cols; ++j) {
-                result.data[j][i] = data[i][j];
-            }
-        }
-        return result;
-    }
+    return result;
+}
 
-    void print() const {
-        for (size_t i = 0; i < rows; ++i) {
-            for (size_t j = 0; j < cols; ++j) {
-                std::cout << data[i][j] << " ";
-            }
-            std::cout << std::endl;
+void printMatrix(const std::vector<std::vector<int>>& matrix) {
+    for (const auto& row : matrix) {
+        for (int val : row) {
+            std::cout << val << " ";
         }
+        std::cout << std::endl;
     }
-
-    size_t getRows() const { return rows; }
-    size_t getCols() const { return cols; }
-};
+}
 
 int main() {
-    srand(static_cast<unsigned>(time(nullptr)));
+    std::vector<std::vector<int>> original = {
+        {1, 2, 3},
+        {4, 5, 6},
+        {7, 8, 9}
+    };
 
-    Matrix<int> mat(3, 4);
-    mat.fillRandom();
+    std::cout << "Original matrix:" << std::endl;
+    printMatrix(original);
 
-    std::cout << "Original Matrix (" << mat.getRows() << "x" << mat.getCols() << "):" << std::endl;
-    mat.print();
+    std::vector<std::vector<int>> transposed = transposeMatrix(original);
 
-    Matrix<int> transposed = mat.transpose();
-    std::cout << "\nTransposed Matrix (" << transposed.getRows() << "x" << transposed.getCols() << "):" << std::endl;
-    transposed.print();
+    std::cout << "\nTransposed matrix:" << std::endl;
+    printMatrix(transposed);
 
     return 0;
 }
