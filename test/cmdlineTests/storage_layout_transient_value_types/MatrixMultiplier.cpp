@@ -12,6 +12,15 @@ private:
     std::vector<std::vector<double>> result;
     size_t rowsA, colsA, rowsB, colsB;
 
+    void initializeRandomMatrix(std::vector<std::vector<double>>& matrix, size_t rows, size_t cols) {
+        matrix.resize(rows, std::vector<double>(cols));
+        for (size_t i = 0; i < rows; ++i) {
+            for (size_t j = 0; j < cols; ++j) {
+                matrix[i][j] = static_cast<double>(rand()) / RAND_MAX * 100.0;
+            }
+        }
+    }
+
 public:
     ParallelMatrixMultiplier(size_t rA, size_t cA, size_t rB, size_t cB) 
         : rowsA(rA), colsA(cA), rowsB(rB), colsB(cB) {
@@ -19,37 +28,16 @@ public:
             throw std::invalid_argument("Matrix dimensions incompatible for multiplication");
         }
         
-        matrixA.resize(rowsA, std::vector<double>(colsA));
-        matrixB.resize(rowsB, std::vector<double>(colsB));
+        srand(static_cast<unsigned>(time(nullptr)));
+        initializeRandomMatrix(matrixA, rowsA, colsA);
+        initializeRandomMatrix(matrixB, rowsB, colsB);
         result.resize(rowsA, std::vector<double>(colsB, 0.0));
-        
-        initializeRandomMatrices();
     }
 
-    void initializeRandomMatrices() {
-        std::srand(static_cast<unsigned>(std::time(nullptr)));
-        
-        #pragma omp parallel for collapse(2)
-        for (size_t i = 0; i < rowsA; ++i) {
-            for (size_t j = 0; j < colsA; ++j) {
-                matrixA[i][j] = static_cast<double>(std::rand()) / RAND_MAX * 100.0;
-            }
-        }
-        
-        #pragma omp parallel for collapse(2)
-        for (size_t i = 0; i < rowsB; ++i) {
-            for (size_t j = 0; j < colsB; ++j) {
-                matrixB[i][j] = static_cast<double>(std::rand()) / RAND_MAX * 100.0;
-            }
-        }
-    }
-
-    void multiply() {
-        #pragma omp parallel for collapse(2)
+    void multiplySequential() {
         for (size_t i = 0; i < rowsA; ++i) {
             for (size_t j = 0; j < colsB; ++j) {
                 double sum = 0.0;
-                #pragma omp simd reduction(+:sum)
                 for (size_t k = 0; k < colsA; ++k) {
                     sum += matrixA[i][k] * matrixB[k][j];
                 }
@@ -58,17 +46,20 @@ public:
         }
     }
 
-    void displayResult(size_t maxRows = 5, size_t maxCols = 5) const {
-        std::cout << "Result matrix (first " << maxRows << "x" << maxCols << " elements):\n";
-        for (size_t i = 0; i < std::min(rowsA, maxRows); ++i) {
-            for (size_t j = 0; j < std::min(colsB, maxCols); ++j) {
-                std::cout << result[i][j] << "\t";
+    void multiplyParallel() {
+        #pragma omp parallel for collapse(2) schedule(dynamic)
+        for (size_t i = 0; i < rowsA; ++i) {
+            for (size_t j = 0; j < colsB; ++j) {
+                double sum = 0.0;
+                for (size_t k = 0; k < colsA; ++k) {
+                    sum += matrixA[i][k] * matrixB[k][j];
+                }
+                result[i][j] = sum;
             }
-            std::cout << "\n";
         }
     }
 
-    double verifyWithSequential() {
+    void verifyMultiplication() {
         std::vector<std::vector<double>> sequentialResult(rowsA, std::vector<double>(colsB, 0.0));
         
         for (size_t i = 0; i < rowsA; ++i) {
@@ -81,40 +72,67 @@ public:
             }
         }
 
-        double maxError = 0.0;
-        for (size_t i = 0; i < rowsA; ++i) {
-            for (size_t j = 0; j < colsB; ++j) {
-                double error = std::abs(result[i][j] - sequentialResult[i][j]);
-                if (error > maxError) {
-                    maxError = error;
+        bool correct = true;
+        const double epsilon = 1e-9;
+        for (size_t i = 0; i < rowsA && correct; ++i) {
+            for (size_t j = 0; j < colsB && correct; ++j) {
+                if (std::abs(result[i][j] - sequentialResult[i][j]) > epsilon) {
+                    correct = false;
                 }
             }
         }
-        return maxError;
+
+        std::cout << "Verification: " << (correct ? "PASSED" : "FAILED") << std::endl;
+    }
+
+    void printResultSummary() {
+        std::cout << "Matrix multiplication completed." << std::endl;
+        std::cout << "Result matrix dimensions: " << rowsA << " x " << colsB << std::endl;
+        std::cout << "Sample values from result matrix:" << std::endl;
+        
+        size_t sampleRows = std::min(static_cast<size_t>(3), rowsA);
+        size_t sampleCols = std::min(static_cast<size_t>(3), colsB);
+        
+        for (size_t i = 0; i < sampleRows; ++i) {
+            for (size_t j = 0; j < sampleCols; ++j) {
+                std::cout << result[i][j] << " ";
+            }
+            std::cout << std::endl;
+        }
+    }
+
+    double computePerformanceGain() {
+        clock_t start, end;
+        
+        start = clock();
+        multiplySequential();
+        end = clock();
+        double sequentialTime = static_cast<double>(end - start) / CLOCKS_PER_SEC;
+        
+        start = clock();
+        multiplyParallel();
+        end = clock();
+        double parallelTime = static_cast<double>(end - start) / CLOCKS_PER_SEC;
+        
+        return sequentialTime / parallelTime;
     }
 };
 
 int main() {
-    const size_t SIZE = 512;
-    
     try {
-        ParallelMatrixMultiplier multiplier(SIZE, SIZE, SIZE, SIZE);
+        const size_t rows = 500;
+        const size_t cols = 500;
         
-        double startTime = omp_get_wtime();
-        multiplier.multiply();
-        double endTime = omp_get_wtime();
+        ParallelMatrixMultiplier multiplier(rows, cols, cols, rows);
         
-        std::cout << "Parallel matrix multiplication completed for " 
-                  << SIZE << "x" << SIZE << " matrices.\n";
-        std::cout << "Execution time: " << (endTime - startTime) << " seconds\n";
+        std::cout << "Performing parallel matrix multiplication..." << std::endl;
+        multiplier.multiplyParallel();
         
-        double verificationError = multiplier.verifyWithSequential();
-        std::cout << "Maximum numerical error compared to sequential: " 
-                  << verificationError << "\n";
+        multiplier.verifyMultiplication();
+        multiplier.printResultSummary();
         
-        if (SIZE <= 10) {
-            multiplier.displayResult();
-        }
+        double speedup = multiplier.computePerformanceGain();
+        std::cout << "Parallel speedup factor: " << speedup << "x" << std::endl;
         
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
