@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <filesystem>
 #include <string>
@@ -7,61 +6,52 @@
 
 namespace fs = std::filesystem;
 
-class FileRenamer {
-public:
-    static void renameFilesInDirectory(const std::string& directoryPath,
-                                       const std::string& prefix,
-                                       int startNumber = 1,
-                                       const std::string& targetExtension = "") {
-        if (!fs::exists(directoryPath) || !fs::is_directory(directoryPath)) {
-            std::cerr << "Error: Invalid directory path." << std::endl;
-            return;
-        }
-
+void batchRename(const std::string& directoryPath, const std::string& baseName) {
+    try {
         std::vector<fs::path> files;
         for (const auto& entry : fs::directory_iterator(directoryPath)) {
             if (fs::is_regular_file(entry.status())) {
-                if (targetExtension.empty() ||
-                    entry.path().extension().string() == targetExtension) {
-                    files.push_back(entry.path());
-                }
+                files.push_back(entry.path());
             }
         }
 
         std::sort(files.begin(), files.end());
 
-        int counter = startNumber;
-        for (const auto& oldPath : files) {
-            std::string extension = oldPath.extension().string();
-            std::string newFilename = prefix + std::to_string(counter) + extension;
-            fs::path newPath = oldPath.parent_path() / newFilename;
+        int counter = 1;
+        for (const auto& file : files) {
+            std::string extension = file.extension().string();
+            std::string newFileName = baseName + "_" + std::to_string(counter) + extension;
+            fs::path newPath = file.parent_path() / newFileName;
 
             try {
-                fs::rename(oldPath, newPath);
-                std::cout << "Renamed: " << oldPath.filename() << " -> " << newFilename << std::endl;
-                counter++;
+                fs::rename(file, newPath);
+                std::cout << "Renamed: " << file.filename() << " -> " << newFileName << std::endl;
+                ++counter;
             } catch (const fs::filesystem_error& e) {
-                std::cerr << "Failed to rename " << oldPath.filename() << ": " << e.what() << std::endl;
+                std::cerr << "Error renaming " << file.filename() << ": " << e.what() << std::endl;
             }
         }
 
-        std::cout << "Renaming completed. Total files processed: " << (counter - startNumber) << std::endl;
+        std::cout << "Batch renaming completed. " << (counter - 1) << " files processed." << std::endl;
+    } catch (const fs::filesystem_error& e) {
+        std::cerr << "Filesystem error: " << e.what() << std::endl;
     }
-};
+}
 
 int main(int argc, char* argv[]) {
-    if (argc < 3) {
-        std::cout << "Usage: " << argv[0] << " <directory> <prefix> [startNumber] [extension]" << std::endl;
-        std::cout << "Example: " << argv[0] << " ./images photo_ 1 .jpg" << std::endl;
+    if (argc != 3) {
+        std::cout << "Usage: " << argv[0] << " <directory_path> <base_name>" << std::endl;
         return 1;
     }
 
-    std::string directory = argv[1];
-    std::string prefix = argv[2];
-    int startNumber = (argc > 3) ? std::stoi(argv[3]) : 1;
-    std::string extension = (argc > 4) ? argv[4] : "";
+    std::string dirPath = argv[1];
+    std::string baseName = argv[2];
 
-    FileRenamer::renameFilesInDirectory(directory, prefix, startNumber, extension);
+    if (!fs::exists(dirPath) || !fs::is_directory(dirPath)) {
+        std::cerr << "Error: Invalid directory path." << std::endl;
+        return 1;
+    }
 
+    batchRename(dirPath, baseName);
     return 0;
 }
