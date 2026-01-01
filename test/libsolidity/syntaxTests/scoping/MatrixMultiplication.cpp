@@ -1,53 +1,70 @@
+
 #include <iostream>
 #include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <omp.h>
 
-std::vector<std::vector<int>> multiplyMatrices(const std::vector<std::vector<int>>& matA,
-                                               const std::vector<std::vector<int>>& matB) {
-    int rowsA = matA.size();
-    int colsA = matA[0].size();
-    int colsB = matB[0].size();
+using namespace std;
 
-    std::vector<std::vector<int>> result(rowsA, std::vector<int>(colsB, 0));
-
-    for (int i = 0; i < rowsA; ++i) {
-        for (int j = 0; j < colsB; ++j) {
-            for (int k = 0; k < colsA; ++k) {
-                result[i][j] += matA[i][k] * matB[k][j];
-            }
+vector<vector<double>> generateRandomMatrix(int rows, int cols) {
+    vector<vector<double>> matrix(rows, vector<double>(cols));
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX;
         }
     }
+    return matrix;
+}
 
+vector<vector<double>> multiplyMatricesParallel(const vector<vector<double>>& A,
+                                                const vector<vector<double>>& B) {
+    int rowsA = A.size();
+    int colsA = A[0].size();
+    int colsB = B[0].size();
+    
+    vector<vector<double>> result(rowsA, vector<double>(colsB, 0.0));
+    
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < rowsA; ++i) {
+        for (int j = 0; j < colsB; ++j) {
+            double sum = 0.0;
+            for (int k = 0; k < colsA; ++k) {
+                sum += A[i][k] * B[k][j];
+            }
+            result[i][j] = sum;
+        }
+    }
+    
     return result;
 }
 
-void printMatrix(const std::vector<std::vector<int>>& matrix) {
-    for (const auto& row : matrix) {
-        for (int val : row) {
-            std::cout << val << " ";
-        }
-        std::cout << std::endl;
-    }
-}
-
 int main() {
-    std::vector<std::vector<int>> matrixA = {{1, 2, 3},
-                                             {4, 5, 6},
-                                             {7, 8, 9}};
-
-    std::vector<std::vector<int>> matrixB = {{9, 8, 7},
-                                             {6, 5, 4},
-                                             {3, 2, 1}};
-
-    std::vector<std::vector<int>> product = multiplyMatrices(matrixA, matrixB);
-
-    std::cout << "Matrix A:" << std::endl;
-    printMatrix(matrixA);
-
-    std::cout << "\nMatrix B:" << std::endl;
-    printMatrix(matrixB);
-
-    std::cout << "\nProduct of A and B:" << std::endl;
-    printMatrix(product);
-
+    srand(static_cast<unsigned>(time(nullptr)));
+    
+    const int N = 500;
+    
+    cout << "Generating random matrices of size " << N << "x" << N << "..." << endl;
+    auto matrixA = generateRandomMatrix(N, N);
+    auto matrixB = generateRandomMatrix(N, N);
+    
+    cout << "Performing parallel matrix multiplication..." << endl;
+    double startTime = omp_get_wtime();
+    
+    auto result = multiplyMatricesParallel(matrixA, matrixB);
+    
+    double endTime = omp_get_wtime();
+    double elapsedTime = endTime - startTime;
+    
+    cout << "Matrix multiplication completed in " << elapsedTime << " seconds." << endl;
+    
+    double checksum = 0.0;
+    for (int i = 0; i < min(10, N); ++i) {
+        for (int j = 0; j < min(10, N); ++j) {
+            checksum += result[i][j];
+        }
+    }
+    cout << "Checksum of first 10x10 elements: " << checksum << endl;
+    
     return 0;
 }
