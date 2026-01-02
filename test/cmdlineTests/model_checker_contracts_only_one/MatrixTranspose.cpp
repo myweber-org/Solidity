@@ -1,62 +1,71 @@
-
 #include <iostream>
 #include <vector>
-#include <stdexcept>
 
-std::vector<std::vector<int>> transposeMatrix(const std::vector<std::vector<int>>& matrix) {
-    if (matrix.empty()) {
-        return {};
-    }
-    
-    size_t rows = matrix.size();
-    size_t cols = matrix[0].size();
-    
-    for (size_t i = 1; i < rows; ++i) {
-        if (matrix[i].size() != cols) {
-            throw std::invalid_argument("Input matrix must be rectangular");
-        }
-    }
-    
-    std::vector<std::vector<int>> result(cols, std::vector<int>(rows));
-    
-    for (size_t i = 0; i < rows; ++i) {
-        for (size_t j = 0; j < cols; ++j) {
-            result[j][i] = matrix[i][j];
-        }
-    }
-    
-    return result;
-}
+template <typename T>
+class Matrix {
+private:
+    std::vector<std::vector<T>> data;
+    size_t rows;
+    size_t cols;
 
-void printMatrix(const std::vector<std::vector<int>>& matrix) {
-    for (const auto& row : matrix) {
-        for (int val : row) {
-            std::cout << val << " ";
-        }
-        std::cout << std::endl;
+public:
+    Matrix(size_t r, size_t c) : rows(r), cols(c) {
+        data.resize(rows, std::vector<T>(cols, T()));
     }
-}
+
+    void setValue(size_t r, size_t c, T value) {
+        if (r < rows && c < cols) {
+            data[r][c] = value;
+        }
+    }
+
+    T getValue(size_t r, size_t c) const {
+        if (r < rows && c < cols) {
+            return data[r][c];
+        }
+        return T();
+    }
+
+    size_t getRows() const { return rows; }
+    size_t getCols() const { return cols; }
+
+    void print() const {
+        for (size_t i = 0; i < rows; ++i) {
+            for (size_t j = 0; j < cols; ++j) {
+                std::cout << data[i][j] << " ";
+            }
+            std::cout << std::endl;
+        }
+    }
+
+    Matrix<T> transpose() const {
+        Matrix<T> result(cols, rows);
+        for (size_t i = 0; i < rows; ++i) {
+            for (size_t j = 0; j < cols; ++j) {
+                result.setValue(j, i, data[i][j]);
+            }
+        }
+        return result;
+    }
+};
 
 int main() {
-    std::vector<std::vector<int>> original = {
-        {1, 2, 3},
-        {4, 5, 6},
-        {7, 8, 9}
-    };
+    Matrix<int> mat(3, 4);
     
-    try {
-        std::vector<std::vector<int>> transposed = transposeMatrix(original);
-        
-        std::cout << "Original matrix:" << std::endl;
-        printMatrix(original);
-        
-        std::cout << "\nTransposed matrix:" << std::endl;
-        printMatrix(transposed);
-        
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return 1;
+    int counter = 1;
+    for (size_t i = 0; i < 3; ++i) {
+        for (size_t j = 0; j < 4; ++j) {
+            mat.setValue(i, j, counter++);
+        }
     }
+
+    std::cout << "Original Matrix:" << std::endl;
+    mat.print();
+
+    Matrix<int> transposed = mat.transpose();
     
+    std::cout << "\nTransposed Matrix:" << std::endl;
+    transposed.print();
+
     return 0;
 }
