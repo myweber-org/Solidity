@@ -2,7 +2,6 @@
 #include <iostream>
 #include <filesystem>
 #include <string>
-#include <iomanip>
 #include <vector>
 #include <algorithm>
 
@@ -10,66 +9,62 @@ namespace fs = std::filesystem;
 
 class FileRenamer {
 public:
-    static void renameFilesInDirectory(const fs::path& directory,
-                                       const std::string& prefix,
-                                       const std::string& extension,
-                                       int startNumber = 1,
-                                       int digits = 4) {
+    static void renameFilesInDirectory(const fs::path& directory, 
+                                       const std::string& prefix, 
+                                       int startNumber = 1) {
         if (!fs::exists(directory) || !fs::is_directory(directory)) {
-            std::cerr << "Error: Invalid directory path.\n";
+            std::cerr << "Error: Invalid directory path." << std::endl;
             return;
         }
 
-        std::vector<fs::path> files;
+        std::vector<fs::directory_entry> files;
         for (const auto& entry : fs::directory_iterator(directory)) {
-            if (fs::is_regular_file(entry.path())) {
-                files.push_back(entry.path());
+            if (fs::is_regular_file(entry.status())) {
+                files.push_back(entry);
             }
         }
 
-        std::sort(files.begin(), files.end());
+        std::sort(files.begin(), files.end(), 
+                  [](const fs::directory_entry& a, const fs::directory_entry& b) {
+                      return a.path().filename().string() < b.path().filename().string();
+                  });
 
-        int counter = startNumber;
-        for (const auto& oldPath : files) {
-            std::stringstream newFilename;
-            newFilename << prefix
-                       << std::setw(digits) << std::setfill('0') << counter
-                       << extension;
-
-            fs::path newPath = directory / newFilename.str();
+        int currentNumber = startNumber;
+        for (const auto& file : files) {
+            fs::path oldPath = file.path();
+            std::string extension = oldPath.extension().string();
+            
+            std::string newFilename = prefix + "_" + 
+                                     std::to_string(currentNumber) + 
+                                     extension;
+            fs::path newPath = oldPath.parent_path() / newFilename;
 
             try {
                 fs::rename(oldPath, newPath);
-                std::cout << "Renamed: " << oldPath.filename()
-                          << " -> " << newPath.filename() << '\n';
-                ++counter;
+                std::cout << "Renamed: " << oldPath.filename() 
+                          << " -> " << newPath.filename() << std::endl;
+                currentNumber++;
             } catch (const fs::filesystem_error& e) {
-                std::cerr << "Failed to rename " << oldPath.filename()
-                          << ": " << e.what() << '\n';
+                std::cerr << "Failed to rename " << oldPath.filename() 
+                          << ": " << e.what() << std::endl;
             }
         }
-
-        std::cout << "Renaming completed. Total files processed: "
-                  << (counter - startNumber) << '\n';
+        
+        std::cout << "Total files renamed: " << (currentNumber - startNumber) << std::endl;
     }
 };
 
 int main(int argc, char* argv[]) {
-    if (argc < 4) {
-        std::cout << "Usage: " << argv[0]
-                  << " <directory> <prefix> <extension> [start] [digits]\n"
-                  << "Example: " << argv[0]
-                  << " ./images photo_ .jpg 1 3\n";
+    if (argc < 3) {
+        std::cout << "Usage: " << argv[0] << " <directory_path> <prefix> [start_number]" << std::endl;
         return 1;
     }
 
-    fs::path dir(argv[1]);
+    fs::path directory(argv[1]);
     std::string prefix(argv[2]);
-    std::string extension(argv[3]);
-    int start = (argc > 4) ? std::stoi(argv[4]) : 1;
-    int digits = (argc > 5) ? std::stoi(argv[5]) : 4;
+    int startNumber = (argc >= 4) ? std::stoi(argv[3]) : 1;
 
-    FileRenamer::renameFilesInDirectory(dir, prefix, extension, start, digits);
-
+    FileRenamer::renameFilesInDirectory(directory, prefix, startNumber);
+    
     return 0;
 }
