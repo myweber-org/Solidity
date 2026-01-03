@@ -17,26 +17,17 @@ public:
             return;
         }
 
-        std::vector<fs::directory_entry> files;
+        std::vector<fs::path> files;
         for (const auto& entry : fs::directory_iterator(directoryPath)) {
-            if (fs::is_regular_file(entry.status())) {
-                files.push_back(entry);
+            if (fs::is_regular_file(entry.path())) {
+                files.push_back(entry.path());
             }
         }
 
-        if (files.empty()) {
-            std::cout << "No files found in directory." << std::endl;
-            return;
-        }
-
-        std::sort(files.begin(), files.end(),
-                  [](const fs::directory_entry& a, const fs::directory_entry& b) {
-                      return a.path().filename().string() < b.path().filename().string();
-                  });
+        std::sort(files.begin(), files.end());
 
         int counter = startNumber;
-        for (const auto& file : files) {
-            fs::path oldPath = file.path();
+        for (const auto& oldPath : files) {
             std::string extension = oldPath.extension().string();
             std::string newFilename = prefix + std::to_string(counter) + extension;
             fs::path newPath = oldPath.parent_path() / newFilename;
@@ -50,7 +41,7 @@ public:
             }
         }
 
-        std::cout << "Renaming completed. " << (counter - startNumber) << " files processed." << std::endl;
+        std::cout << "Renaming completed. Total files processed: " << (counter - startNumber) << std::endl;
     }
 };
 
@@ -63,8 +54,9 @@ int main(int argc, char* argv[]) {
 
     std::string directoryPath = argv[1];
     std::string prefix = argv[2];
-    int startNumber = (argc >= 4) ? std::stoi(argv[3]) : 1;
+    int startNumber = (argc > 3) ? std::stoi(argv[3]) : 1;
 
     FileRenamer::renameFilesInDirectory(directoryPath, prefix, startNumber);
+
     return 0;
 }
