@@ -1,66 +1,121 @@
 
+#include <iostream>
+#include <chrono>
+#include <thread>
+#include <filesystem>
 #include <boost/asio.hpp>
 #include <boost/filesystem.hpp>
-#include <iostream>
-#include <thread>
-#include <chrono>
+#include <boost/bind/bind.hpp>
+#include <unordered_set>
 
 namespace fs = boost::filesystem;
+namespace asio = boost::asio;
 
 class FileSystemWatcher {
 public:
-    FileSystemWatcher(boost::asio::io_context& io, const std::string& path)
-        : timer_(io), watch_path_(path) {
-        last_write_time_ = get_last_write_time();
-        start_timer();
+    FileSystemWatcher(asio::io_context& io, const std::string& path)
+        : timer_(io), watch_path_(path), running_(false) {
+        if (fs::exists(watch_path_) && fs::is_directory(watch_path_)) {
+            snapshot_ = takeSnapshot();
+        }
+    }
+
+    void start() {
+        if (running_) return;
+        running_ = true;
+        scheduleCheck();
+    }
+
+    void stop() {
+        running_ = false;
+        timer_.cancel();
     }
 
 private:
-    void start_timer() {
-        timer_.expires_after(std::chrono::seconds(1));
+    using FileSet = std::unordered_set<std::string>;
+
+    FileSet takeSnapshot() {
+        FileSet files;
+        if (!fs::exists(watch_path_)) return files;
+
+        for (const auto& entry : fs::recursive_directory_iterator(watch_path_)) {
+            if (fs::is_regular_file(entry.status())) {
+                files.insert(fs::canonical(entry.path()).string());
+            }
+        }
+        return files;
+    }
+
+    void scheduleCheck() {
+        if (!running_) return;
+        timer_.expires_after(std::chrono::seconds(2));
         timer_.async_wait([this](const boost::system::error_code& ec) {
-            if (!ec) {
-                check_file_changes();
-                start_timer();
+            if (!ec && running_) {
+                checkForChanges();
+                scheduleCheck();
             }
         });
     }
 
-    std::time_t get_last_write_time() {
-        if (fs::exists(watch_path_)) {
-            return fs::last_write_time(watch_path_);
+    void checkForChanges() {
+        auto current = takeSnapshot();
+        std::vector<std::string> added, removed;
+
+        for (const auto& file : current) {
+            if (snapshot_.find(file) == snapshot_.end()) {
+                added.push_back(file);
+            }
         }
-        return 0;
+
+        for (const auto& file : snapshot_) {
+            if (current.find(file) == current.end()) {
+                removed.push_back(file);
+            }
+        }
+
+        if (!added.empty() || !removed.empty()) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            for (const auto& file : added) {
+                std::cout << "[ADDED] " << file << std::endl;
+            }
+            for (const auto& file : removed) {
+                std::cout << "[REMOVED] " << file << std::endl;
+            }
+            snapshot_ = std::move(current);
+        }
     }
 
-    void check_file_changes() {
-        auto current_time = get_last_write_time();
-        if (current_time != last_write_time_) {
-            std::cout << "File modified: " << watch_path_ << std::endl;
-            last_write_time_ = current_time;
-        }
-    }
-
-    boost::asio::steady_timer timer_;
+    asio::steady_timer timer_;
     std::string watch_path_;
-    std::time_t last_write_time_;
+    FileSet snapshot_;
+    bool running_;
+    std::mutex mutex_;
 };
 
-int main() {
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <directory_to_watch>" << std::endl;
+        return 1;
+    }
+
     try {
-        boost::asio::io_context io;
-        FileSystemWatcher watcher(io, "example.txt");
-        
+        asio::io_context io;
+        FileSystemWatcher watcher(io, argv[1]);
+        watcher.start();
+
         std::thread io_thread([&io]() { io.run(); });
-        
-        std::cout << "Watching for file changes... Press Enter to exit." << std::endl;
+
+        std::cout << "Watching directory: " << argv[1] << std::endl;
+        std::cout << "Press Enter to stop..." << std::endl;
         std::cin.get();
-        
+
+        watcher.stop();
         io.stop();
         io_thread.join();
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
+
     return 0;
 }
