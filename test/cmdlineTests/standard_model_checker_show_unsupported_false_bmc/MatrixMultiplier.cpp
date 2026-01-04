@@ -1,28 +1,28 @@
-
 #include <iostream>
 #include <vector>
-#include <chrono>
+#include <cstdlib>
+#include <ctime>
 #include <omp.h>
 
-using namespace std;
-
-vector<vector<double>> generateRandomMatrix(int rows, int cols) {
-    vector<vector<double>> matrix(rows, vector<double>(cols));
+std::vector<std::vector<double>> generateRandomMatrix(int rows, int cols) {
+    std::vector<std::vector<double>> matrix(rows, std::vector<double>(cols));
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
-            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX;
+            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX * 10.0;
         }
     }
     return matrix;
 }
 
-vector<vector<double>> multiplyMatrices(const vector<vector<double>>& A,
-                                        const vector<vector<double>>& B) {
+std::vector<std::vector<double>> multiplyMatricesParallel(
+    const std::vector<std::vector<double>>& A,
+    const std::vector<std::vector<double>>& B) {
+    
     int rowsA = A.size();
     int colsA = A[0].size();
     int colsB = B[0].size();
     
-    vector<vector<double>> result(rowsA, vector<double>(colsB, 0.0));
+    std::vector<std::vector<double>> result(rowsA, std::vector<double>(colsB, 0.0));
     
     #pragma omp parallel for collapse(2)
     for (int i = 0; i < rowsA; ++i) {
@@ -38,27 +38,45 @@ vector<vector<double>> multiplyMatrices(const vector<vector<double>>& A,
     return result;
 }
 
+void printMatrix(const std::vector<std::vector<double>>& matrix, int maxRows = 3, int maxCols = 3) {
+    int rows = std::min(static_cast<int>(matrix.size()), maxRows);
+    int cols = std::min(static_cast<int>(matrix[0].size()), maxCols);
+    
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            std::cout << matrix[i][j] << " ";
+        }
+        std::cout << "...\n";
+    }
+    std::cout << "...\n";
+}
+
 int main() {
-    const int SIZE = 500;
+    srand(static_cast<unsigned>(time(nullptr)));
     
-    auto start = chrono::high_resolution_clock::now();
-    vector<vector<double>> matrixA = generateRandomMatrix(SIZE, SIZE);
-    vector<vector<double>> matrixB = generateRandomMatrix(SIZE, SIZE);
-    auto end = chrono::high_resolution_clock::now();
+    const int N = 500;
+    const int M = 500;
+    const int P = 500;
     
-    chrono::duration<double> generationTime = end - start;
-    cout << "Matrix generation time: " << generationTime.count() << " seconds" << endl;
+    std::cout << "Generating random matrices of size " << N << "x" << M << " and " << M << "x" << P << "...\n";
+    auto matrixA = generateRandomMatrix(N, M);
+    auto matrixB = generateRandomMatrix(M, P);
     
-    start = chrono::high_resolution_clock::now();
-    vector<vector<double>> result = multiplyMatrices(matrixA, matrixB);
-    end = chrono::high_resolution_clock::now();
+    std::cout << "First few elements of matrix A:\n";
+    printMatrix(matrixA);
     
-    chrono::duration<double> multiplicationTime = end - start;
-    cout << "Matrix multiplication time: " << multiplicationTime.count() << " seconds" << endl;
+    std::cout << "\nFirst few elements of matrix B:\n";
+    printMatrix(matrixB);
     
-    double totalOperations = 2.0 * SIZE * SIZE * SIZE;
-    double gflops = (totalOperations / multiplicationTime.count()) / 1e9;
-    cout << "Performance: " << gflops << " GFLOPS" << endl;
+    std::cout << "\nPerforming parallel matrix multiplication...\n";
+    double startTime = omp_get_wtime();
+    auto result = multiplyMatricesParallel(matrixA, matrixB);
+    double endTime = omp_get_wtime();
+    
+    std::cout << "\nFirst few elements of result matrix:\n";
+    printMatrix(result);
+    
+    std::cout << "\nParallel multiplication completed in " << (endTime - startTime) << " seconds.\n";
     
     return 0;
 }
