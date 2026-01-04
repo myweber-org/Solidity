@@ -1,87 +1,46 @@
-
 #include <iostream>
 #include <vector>
-#include <chrono>
-#include <cstdlib>
-#include <omp.h>
 
-std::vector<std::vector<double>> generateRandomMatrix(int rows, int cols) {
-    std::vector<std::vector<double>> matrix(rows, std::vector<double>(cols));
-    for (int i = 0; i < rows; ++i) {
-        for (int j = 0; j < cols; ++j) {
-            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX;
+std::vector<std::vector<int>> multiplyMatrices(const std::vector<std::vector<int>>& A,
+                                               const std::vector<std::vector<int>>& B) {
+    int rowsA = A.size();
+    int colsA = A[0].size();
+    int colsB = B[0].size();
+
+    std::vector<std::vector<int>> result(rowsA, std::vector<int>(colsB, 0));
+
+    for (int i = 0; i < rowsA; ++i) {
+        for (int j = 0; j < colsB; ++j) {
+            for (int k = 0; k < colsA; ++k) {
+                result[i][j] += A[i][k] * B[k][j];
+            }
         }
     }
-    return matrix;
+
+    return result;
 }
 
-std::vector<std::vector<double>> multiplyMatricesParallel(
-    const std::vector<std::vector<double>>& A,
-    const std::vector<std::vector<double>>& B) {
-    
-    int m = A.size();
-    int n = A[0].size();
-    int p = B[0].size();
-    
-    std::vector<std::vector<double>> C(m, std::vector<double>(p, 0.0));
-    
-    #pragma omp parallel for collapse(2)
-    for (int i = 0; i < m; ++i) {
-        for (int j = 0; j < p; ++j) {
-            double sum = 0.0;
-            for (int k = 0; k < n; ++k) {
-                sum += A[i][k] * B[k][j];
-            }
-            C[i][j] = sum;
+void printMatrix(const std::vector<std::vector<int>>& matrix) {
+    for (const auto& row : matrix) {
+        for (int val : row) {
+            std::cout << val << " ";
         }
+        std::cout << std::endl;
     }
-    
-    return C;
-}
-
-std::vector<std::vector<double>> multiplyMatricesSequential(
-    const std::vector<std::vector<double>>& A,
-    const std::vector<std::vector<double>>& B) {
-    
-    int m = A.size();
-    int n = A[0].size();
-    int p = B[0].size();
-    
-    std::vector<std::vector<double>> C(m, std::vector<double>(p, 0.0));
-    
-    for (int i = 0; i < m; ++i) {
-        for (int j = 0; j < p; ++j) {
-            double sum = 0.0;
-            for (int k = 0; k < n; ++k) {
-                sum += A[i][k] * B[k][j];
-            }
-            C[i][j] = sum;
-        }
-    }
-    
-    return C;
 }
 
 int main() {
-    const int SIZE = 500;
-    srand(42);
-    
-    auto A = generateRandomMatrix(SIZE, SIZE);
-    auto B = generateRandomMatrix(SIZE, SIZE);
-    
-    auto start = std::chrono::high_resolution_clock::now();
-    auto C_seq = multiplyMatricesSequential(A, B);
-    auto end = std::chrono::high_resolution_clock::now();
-    auto seq_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    
-    start = std::chrono::high_resolution_clock::now();
-    auto C_par = multiplyMatricesParallel(A, B);
-    end = std::chrono::high_resolution_clock::now();
-    auto par_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    
-    std::cout << "Sequential multiplication time: " << seq_duration.count() << " ms" << std::endl;
-    std::cout << "Parallel multiplication time: " << par_duration.count() << " ms" << std::endl;
-    std::cout << "Speedup: " << static_cast<double>(seq_duration.count()) / par_duration.count() << "x" << std::endl;
-    
+    std::vector<std::vector<int>> matrixA = {{1, 2, 3},
+                                             {4, 5, 6}};
+
+    std::vector<std::vector<int>> matrixB = {{7, 8},
+                                             {9, 10},
+                                             {11, 12}};
+
+    std::vector<std::vector<int>> product = multiplyMatrices(matrixA, matrixB);
+
+    std::cout << "Result of matrix multiplication:" << std::endl;
+    printMatrix(product);
+
     return 0;
 }
