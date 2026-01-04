@@ -15,7 +15,7 @@ std::vector<std::vector<double>> generateRandomMatrix(int rows, int cols) {
     return matrix;
 }
 
-std::vector<std::vector<double>> multiplyMatricesParallel(
+std::vector<std::vector<double>> multiplyMatrices(
     const std::vector<std::vector<double>>& A,
     const std::vector<std::vector<double>>& B) {
     
@@ -39,24 +39,47 @@ std::vector<std::vector<double>> multiplyMatricesParallel(
     return result;
 }
 
+void printMatrixStats(const std::vector<std::vector<double>>& matrix) {
+    double sum = 0.0;
+    double minVal = matrix[0][0];
+    double maxVal = matrix[0][0];
+    
+    #pragma omp parallel for reduction(+:sum) reduction(min:minVal) reduction(max:maxVal) collapse(2)
+    for (size_t i = 0; i < matrix.size(); ++i) {
+        for (size_t j = 0; j < matrix[i].size(); ++j) {
+            double val = matrix[i][j];
+            sum += val;
+            if (val < minVal) minVal = val;
+            if (val > maxVal) maxVal = val;
+        }
+    }
+    
+    std::cout << "Matrix Statistics:\n";
+    std::cout << "  Sum: " << sum << "\n";
+    std::cout << "  Average: " << sum / (matrix.size() * matrix[0].size()) << "\n";
+    std::cout << "  Min: " << minVal << "\n";
+    std::cout << "  Max: " << maxVal << "\n";
+}
+
 int main() {
     srand(static_cast<unsigned>(time(nullptr)));
     
     const int N = 500;
-    std::cout << "Generating " << N << "x" << N << " matrices..." << std::endl;
+    const int M = 500;
+    const int P = 500;
     
-    auto matrixA = generateRandomMatrix(N, N);
-    auto matrixB = generateRandomMatrix(N, N);
+    std::cout << "Generating random matrices of size " << N << "x" << M << " and " << M << "x" << P << "...\n";
+    auto matrixA = generateRandomMatrix(N, M);
+    auto matrixB = generateRandomMatrix(M, P);
     
-    std::cout << "Performing parallel matrix multiplication..." << std::endl;
+    std::cout << "Performing parallel matrix multiplication...\n";
     double startTime = omp_get_wtime();
-    
-    auto result = multiplyMatricesParallel(matrixA, matrixB);
-    
+    auto result = multiplyMatrices(matrixA, matrixB);
     double endTime = omp_get_wtime();
-    std::cout << "Multiplication completed in " << (endTime - startTime) << " seconds." << std::endl;
     
-    std::cout << "Sample element result[0][0] = " << result[0][0] << std::endl;
+    std::cout << "Multiplication completed in " << (endTime - startTime) << " seconds\n";
+    
+    printMatrixStats(result);
     
     return 0;
 }
