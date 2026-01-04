@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <filesystem>
 #include <chrono>
@@ -13,52 +12,49 @@ private:
     std::unordered_set<std::string> current_files;
     bool running = false;
 
-    std::unordered_set<std::string> get_directory_contents() {
-        std::unordered_set<std::string> files;
-        if (fs::exists(path_to_watch) && fs::is_directory(path_to_watch)) {
-            for (const auto& entry : fs::directory_iterator(path_to_watch)) {
-                files.insert(entry.path().filename().string());
-            }
-        }
-        return files;
-    }
-
-    void compare_and_notify(const std::unordered_set<std::string>& new_files) {
-        // Check for added files
-        for (const auto& file : new_files) {
-            if (current_files.find(file) == current_files.end()) {
-                std::cout << "File added: " << file << std::endl;
-            }
-        }
-
-        // Check for removed files
-        for (const auto& file : current_files) {
-            if (new_files.find(file) == new_files.end()) {
-                std::cout << "File removed: " << file << std::endl;
-            }
+    void populate_file_set() {
+        current_files.clear();
+        for (const auto& entry : fs::directory_iterator(path_to_watch)) {
+            current_files.insert(entry.path().filename().string());
         }
     }
 
 public:
     FileSystemWatcher(const std::string& path) : path_to_watch(path) {
-        current_files = get_directory_contents();
+        if (!fs::exists(path_to_watch) || !fs::is_directory(path_to_watch)) {
+            throw std::invalid_argument("Provided path is not a valid directory.");
+        }
+        populate_file_set();
     }
 
-    void start(int interval_seconds = 1) {
+    void start_monitoring(int interval_seconds = 2) {
         running = true;
-        std::cout << "Watching directory: " << path_to_watch << std::endl;
+        std::cout << "Starting monitoring of: " << path_to_watch << std::endl;
 
         while (running) {
             std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
-            
-            auto new_files = get_directory_contents();
-            compare_and_notify(new_files);
-            current_files = new_files;
+            auto previous_files = current_files;
+            populate_file_set();
+
+            // Detect new files
+            for (const auto& file : current_files) {
+                if (previous_files.find(file) == previous_files.end()) {
+                    std::cout << "[+] New file detected: " << file << std::endl;
+                }
+            }
+
+            // Detect deleted files
+            for (const auto& file : previous_files) {
+                if (current_files.find(file) == current_files.end()) {
+                    std::cout << "[-] File deleted: " << file << std::endl;
+                }
+            }
         }
     }
 
-    void stop() {
+    void stop_monitoring() {
         running = false;
+        std::cout << "Monitoring stopped." << std::endl;
     }
 };
 
@@ -68,18 +64,13 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    FileSystemWatcher watcher(argv[1]);
-    
-    // Handle Ctrl+C or other termination signals in a simple way
-    std::thread watch_thread([&watcher]() {
-        watcher.start();
-    });
+    try {
+        FileSystemWatcher watcher(argv[1]);
+        watcher.start_monitoring();
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
 
-    std::cout << "Press Enter to stop watching..." << std::endl;
-    std::cin.get();
-    
-    watcher.stop();
-    watch_thread.join();
-    
     return 0;
 }
