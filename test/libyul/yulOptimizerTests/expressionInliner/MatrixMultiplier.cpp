@@ -1,95 +1,53 @@
 
 #include <iostream>
 #include <vector>
-#include <stdexcept>
 
-class Matrix {
-private:
-    std::vector<std::vector<double>> data;
-    size_t rows;
-    size_t cols;
+std::vector<std::vector<int>> multiplyMatrices(const std::vector<std::vector<int>>& A,
+                                               const std::vector<std::vector<int>>& B) {
+    int rowsA = A.size();
+    int colsA = A[0].size();
+    int rowsB = B.size();
+    int colsB = B[0].size();
 
-public:
-    Matrix(size_t r, size_t c) : rows(r), cols(c) {
-        data.resize(rows, std::vector<double>(cols, 0.0));
+    if (colsA != rowsB) {
+        throw std::invalid_argument("Matrix dimensions are incompatible for multiplication.");
     }
 
-    void setValue(size_t r, size_t c, double value) {
-        if (r >= rows || c >= cols) {
-            throw std::out_of_range("Matrix indices out of range");
-        }
-        data[r][c] = value;
-    }
+    std::vector<std::vector<int>> result(rowsA, std::vector<int>(colsB, 0));
 
-    double getValue(size_t r, size_t c) const {
-        if (r >= rows || c >= cols) {
-            throw std::out_of_range("Matrix indices out of range");
-        }
-        return data[r][c];
-    }
-
-    size_t getRows() const { return rows; }
-    size_t getCols() const { return cols; }
-
-    void print() const {
-        for (size_t i = 0; i < rows; ++i) {
-            for (size_t j = 0; j < cols; ++j) {
-                std::cout << data[i][j] << " ";
+    for (int i = 0; i < rowsA; ++i) {
+        for (int j = 0; j < colsB; ++j) {
+            for (int k = 0; k < colsA; ++k) {
+                result[i][j] += A[i][k] * B[k][j];
             }
-            std::cout << std::endl;
-        }
-    }
-};
-
-Matrix multiply(const Matrix& a, const Matrix& b) {
-    if (a.getCols() != b.getRows()) {
-        throw std::invalid_argument("Matrix dimensions mismatch for multiplication");
-    }
-
-    Matrix result(a.getRows(), b.getCols());
-
-    for (size_t i = 0; i < a.getRows(); ++i) {
-        for (size_t j = 0; j < b.getCols(); ++j) {
-            double sum = 0.0;
-            for (size_t k = 0; k < a.getCols(); ++k) {
-                sum += a.getValue(i, k) * b.getValue(k, j);
-            }
-            result.setValue(i, j, sum);
         }
     }
 
     return result;
 }
 
+void printMatrix(const std::vector<std::vector<int>>& matrix) {
+    for (const auto& row : matrix) {
+        for (int val : row) {
+            std::cout << val << " ";
+        }
+        std::cout << std::endl;
+    }
+}
+
 int main() {
+    std::vector<std::vector<int>> matrixA = {{1, 2, 3},
+                                             {4, 5, 6}};
+
+    std::vector<std::vector<int>> matrixB = {{7, 8},
+                                             {9, 10},
+                                             {11, 12}};
+
     try {
-        Matrix matA(2, 3);
-        Matrix matB(3, 2);
-
-        matA.setValue(0, 0, 1.0);
-        matA.setValue(0, 1, 2.0);
-        matA.setValue(0, 2, 3.0);
-        matA.setValue(1, 0, 4.0);
-        matA.setValue(1, 1, 5.0);
-        matA.setValue(1, 2, 6.0);
-
-        matB.setValue(0, 0, 7.0);
-        matB.setValue(0, 1, 8.0);
-        matB.setValue(1, 0, 9.0);
-        matB.setValue(1, 1, 10.0);
-        matB.setValue(2, 0, 11.0);
-        matB.setValue(2, 1, 12.0);
-
-        std::cout << "Matrix A:" << std::endl;
-        matA.print();
-        std::cout << "Matrix B:" << std::endl;
-        matB.print();
-
-        Matrix matC = multiply(matA, matB);
-        std::cout << "Result of multiplication:" << std::endl;
-        matC.print();
-
-    } catch (const std::exception& e) {
+        std::vector<std::vector<int>> product = multiplyMatrices(matrixA, matrixB);
+        std::cout << "Result of matrix multiplication:" << std::endl;
+        printMatrix(product);
+    } catch (const std::invalid_argument& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
