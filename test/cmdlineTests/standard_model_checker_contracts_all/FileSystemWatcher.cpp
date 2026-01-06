@@ -291,3 +291,110 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+#include <iostream>
+#include <chrono>
+#include <thread>
+#include <filesystem>
+#include <boost/asio.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/bind/bind.hpp>
+#include <unordered_set>
+
+namespace fs = boost::filesystem;
+namespace asio = boost::asio;
+
+class FileSystemWatcher {
+public:
+    FileSystemWatcher(asio::io_context& io_context, const std::string& path)
+        : timer_(io_context), watch_path_(path), last_check_(std::chrono::steady_clock::now()) {
+        scan_files();
+        start_timer();
+    }
+
+private:
+    void start_timer() {
+        timer_.expires_after(std::chrono::seconds(2));
+        timer_.async_wait(boost::bind(&FileSystemWatcher::check_changes, this,
+                                      asio::placeholders::error));
+    }
+
+    void scan_files() {
+        current_files_.clear();
+        if (fs::exists(watch_path_) && fs::is_directory(watch_path_)) {
+            for (const auto& entry : fs::recursive_directory_iterator(watch_path_)) {
+                if (fs::is_regular_file(entry.status())) {
+                    current_files_.insert(fs::canonical(entry.path()).string());
+                }
+            }
+        }
+    }
+
+    void check_changes(const boost::system::error_code& ec) {
+        if (ec) {
+            std::cerr << "Timer error: " << ec.message() << std::endl;
+            return;
+        }
+
+        auto previous_files = last_files_;
+        last_files_ = current_files_;
+        scan_files();
+
+        std::unordered_set<std::string> added_files;
+        std::unordered_set<std::string> removed_files;
+
+        for (const auto& file : current_files_) {
+            if (last_files_.find(file) == last_files_.end()) {
+                added_files.insert(file);
+            }
+        }
+
+        for (const auto& file : last_files_) {
+            if (current_files_.find(file) == current_files_.end()) {
+                removed_files.insert(file);
+            }
+        }
+
+        auto now = std::chrono::steady_clock::now();
+        if (!added_files.empty() || !removed_files.empty()) {
+            std::cout << "Change detected at " 
+                      << std::chrono::duration_cast<std::chrono::seconds>(now - last_check_).count()
+                      << " seconds interval" << std::endl;
+
+            for (const auto& file : added_files) {
+                std::cout << "  [+] " << file << std::endl;
+            }
+            for (const auto& file : removed_files) {
+                std::cout << "  [-] " << file << std::endl;
+            }
+            last_check_ = now;
+        }
+
+        start_timer();
+    }
+
+    asio::steady_timer timer_;
+    std::string watch_path_;
+    std::unordered_set<std::string> current_files_;
+    std::unordered_set<std::string> last_files_;
+    std::chrono::steady_clock::time_point last_check_;
+};
+
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <directory_to_watch>" << std::endl;
+        return 1;
+    }
+
+    try {
+        asio::io_context io_context;
+        FileSystemWatcher watcher(io_context, argv[1]);
+        std::cout << "Watching directory: " << fs::absolute(argv[1]) << std::endl;
+        std::cout << "Press Ctrl+C to stop..." << std::endl;
+        io_context.run();
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+
+    return 0;
+}
