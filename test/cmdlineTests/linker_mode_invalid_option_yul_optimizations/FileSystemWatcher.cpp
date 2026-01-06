@@ -95,4 +95,99 @@ int main(int argc, char* argv[]) {
     }
 
     return 0;
+}#include <iostream>
+#include <filesystem>
+#include <chrono>
+#include <thread>
+#include <unordered_map>
+#include <string>
+
+namespace fs = std::filesystem;
+
+class FileWatcher {
+public:
+    FileWatcher(const std::string& path_to_watch, std::chrono::duration<int, std::milli> delay)
+        : path_to_watch_{path_to_watch}, delay_{delay} {
+        if (!fs::exists(path_to_watch_) || !fs::is_directory(path_to_watch_)) {
+            throw std::invalid_argument("Path does not exist or is not a directory");
+        }
+        for (const auto& entry : fs::recursive_directory_iterator(path_to_watch_)) {
+            if (fs::is_regular_file(entry.path())) {
+                paths_[entry.path().string()] = fs::last_write_time(entry.path());
+            }
+        }
+    }
+
+    void start(const std::function<void (const std::string&, FileStatus)>& action) {
+        while (running_) {
+            std::this_thread::sleep_for(delay_);
+            auto it = paths_.begin();
+            while (it != paths_.end()) {
+                if (!fs::exists(it->first)) {
+                    action(it->first, FileStatus::erased);
+                    it = paths_.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+
+            for (const auto& entry : fs::recursive_directory_iterator(path_to_watch_)) {
+                if (fs::is_regular_file(entry.path())) {
+                    auto current_file_last_write_time = fs::last_write_time(entry.path());
+                    std::string file_path = entry.path().string();
+                    if (!contains(file_path)) {
+                        paths_[file_path] = current_file_last_write_time;
+                        action(file_path, FileStatus::created);
+                    } else {
+                        if (paths_[file_path] != current_file_last_write_time) {
+                            paths_[file_path] = current_file_last_write_time;
+                            action(file_path, FileStatus::modified);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    void stop() {
+        running_ = false;
+    }
+
+    enum class FileStatus { created, modified, erased };
+
+private:
+    std::unordered_map<std::string, fs::file_time_type> paths_;
+    std::string path_to_watch_;
+    std::chrono::duration<int, std::milli> delay_;
+    bool running_ = true;
+
+    bool contains(const std::string& key) {
+        return paths_.find(key) != paths_.end();
+    }
+};
+
+int main() {
+    std::string path_to_watch = ".";
+    FileWatcher fw(path_to_watch, std::chrono::milliseconds(1000));
+
+    auto handle_file_event = [](const std::string& path, FileWatcher::FileStatus status) {
+        switch (status) {
+            case FileWatcher::FileStatus::created:
+                std::cout << "File created: " << path << std::endl;
+                break;
+            case FileWatcher::FileStatus::modified:
+                std::cout << "File modified: " << path << std::endl;
+                break;
+            case FileWatcher::FileStatus::erased:
+                std::cout << "File erased: " << path << std::endl;
+                break;
+        }
+    };
+
+    std::cout << "Watching directory: " << path_to_watch << std::endl;
+    std::cout << "Press Ctrl+C to stop..." << std::endl;
+
+    fw.start(handle_file_event);
+
+    return 0;
 }
