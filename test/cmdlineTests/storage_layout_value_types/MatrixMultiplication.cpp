@@ -40,7 +40,7 @@ std::vector<std::vector<double>> multiply_matrices_parallel(
 }
 
 void print_matrix_dimensions(const std::vector<std::vector<double>>& matrix, const std::string& name) {
-    std::cout << name << " dimensions: " << matrix.size() << "x" << matrix[0].size() << std::endl;
+    std::cout << name << ": " << matrix.size() << "x" << matrix[0].size() << std::endl;
 }
 
 int main() {
@@ -68,13 +68,9 @@ int main() {
     print_matrix_dimensions(result, "Result matrix");
     std::cout << "Computation time: " << elapsed_time << " seconds" << std::endl;
     
-    double checksum = 0.0;
-    for (int i = 0; i < std::min(10, N); ++i) {
-        for (int j = 0; j < std::min(10, P); ++j) {
-            checksum += result[i][j];
-        }
-    }
-    std::cout << "Checksum of first 10x10 elements: " << checksum << std::endl;
+    double flops = 2.0 * N * M * P;
+    double gflops = flops / (elapsed_time * 1e9);
+    std::cout << "Performance: " << gflops << " GFLOPS" << std::endl;
     
     return 0;
 }
