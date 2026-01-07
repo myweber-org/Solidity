@@ -1,8 +1,8 @@
 
 #include <iostream>
 #include <fstream>
-#include <sstream>
 #include <iomanip>
+#include <sstream>
 #include <vector>
 #include <openssl/sha.h>
 
@@ -12,16 +12,16 @@ std::string computeSHA256(const std::string& filepath) {
         throw std::runtime_error("Cannot open file: " + filepath);
     }
 
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
+    SHA256_CTX shaContext;
+    SHA256_Init(&shaContext);
 
     std::vector<char> buffer(4096);
-    while (file.read(buffer.data(), buffer.size()) || file.gcount() > 0) {
-        SHA256_Update(&sha256, buffer.data(), file.gcount());
+    while (file.read(buffer.data(), buffer.size()) || file.gcount()) {
+        SHA256_Update(&shaContext, buffer.data(), file.gcount());
     }
 
     unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_Final(hash, &sha256);
+    SHA256_Final(hash, &shaContext);
 
     std::ostringstream oss;
     oss << std::hex << std::setfill('0');
@@ -43,7 +43,7 @@ bool verifyFileIntegrity(const std::string& filepath, const std::string& expecte
 
 int main(int argc, char* argv[]) {
     if (argc != 3) {
-        std::cout << "Usage: " << argv[0] << " <filepath> <expected_sha256_hash>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <filepath> <expected_sha256_hash>" << std::endl;
         return 1;
     }
 
@@ -51,10 +51,10 @@ int main(int argc, char* argv[]) {
     std::string expectedHash = argv[2];
 
     if (verifyFileIntegrity(filepath, expectedHash)) {
-        std::cout << "File integrity verified. SHA-256 matches." << std::endl;
+        std::cout << "File integrity verified successfully." << std::endl;
         return 0;
     } else {
-        std::cout << "File integrity check failed. SHA-256 does not match." << std::endl;
+        std::cout << "File integrity check failed. Hashes do not match." << std::endl;
         return 1;
     }
 }
