@@ -1,0 +1,98 @@
+
+#include <iostream>
+#include <vector>
+#include <cmath>
+#include <stdexcept>
+
+class Image {
+private:
+    std::vector<std::vector<int>> pixels;
+    int width, height;
+
+public:
+    Image(int w, int h) : width(w), height(h) {
+        pixels.resize(height, std::vector<int>(width, 0));
+    }
+
+    void setPixel(int x, int y, int value) {
+        if (x >= 0 && x < width && y >= 0 && y < height) {
+            pixels[y][x] = value;
+        }
+    }
+
+    int getPixel(int x, int y) const {
+        if (x >= 0 && x < width && y >= 0 && y < height) {
+            return pixels[y][x];
+        }
+        return 0;
+    }
+
+    int getWidth() const { return width; }
+    int getHeight() const { return height; }
+
+    Image resize(int newWidth, int newHeight) const {
+        if (newWidth <= 0 || newHeight <= 0) {
+            throw std::invalid_argument("New dimensions must be positive");
+        }
+
+        Image resized(newWidth, newHeight);
+        float xRatio = static_cast<float>(width - 1) / newWidth;
+        float yRatio = static_cast<float>(height - 1) / newHeight;
+
+        for (int y = 0; y < newHeight; ++y) {
+            for (int x = 0; x < newWidth; ++x) {
+                float gx = x * xRatio;
+                float gy = y * yRatio;
+                int gxi = static_cast<int>(gx);
+                int gyi = static_cast<int>(gy);
+
+                float dx = gx - gxi;
+                float dy = gy - gyi;
+
+                int p1 = getPixel(gxi, gyi);
+                int p2 = getPixel(gxi + 1, gyi);
+                int p3 = getPixel(gxi, gyi + 1);
+                int p4 = getPixel(gxi + 1, gyi + 1);
+
+                float val = p1 * (1 - dx) * (1 - dy) +
+                            p2 * dx * (1 - dy) +
+                            p3 * (1 - dx) * dy +
+                            p4 * dx * dy;
+
+                resized.setPixel(x, y, static_cast<int>(std::round(val)));
+            }
+        }
+        return resized;
+    }
+
+    void print() const {
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                std::cout << pixels[y][x] << " ";
+            }
+            std::cout << std::endl;
+        }
+    }
+};
+
+int main() {
+    Image original(4, 4);
+    for (int y = 0; y < 4; ++y) {
+        for (int x = 0; x < 4; ++x) {
+            original.setPixel(x, y, (x + y) * 10);
+        }
+    }
+
+    std::cout << "Original image:" << std::endl;
+    original.print();
+
+    try {
+        Image resized = original.resize(8, 8);
+        std::cout << "\nResized image:" << std::endl;
+        resized.print();
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
+
+    return 0;
+}
