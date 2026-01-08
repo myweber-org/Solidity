@@ -10,35 +10,33 @@ private:
     std::vector<std::vector<double>> matrixA;
     std::vector<std::vector<double>> matrixB;
     std::vector<std::vector<double>> result;
-    size_t rowsA, colsA, rowsB, colsB;
+    int size;
 
-    void initializeRandomMatrix(std::vector<std::vector<double>>& matrix, size_t rows, size_t cols) {
-        matrix.resize(rows, std::vector<double>(cols));
-        for (size_t i = 0; i < rows; ++i) {
-            for (size_t j = 0; j < cols; ++j) {
-                matrix[i][j] = static_cast<double>(rand()) / RAND_MAX * 100.0;
+    void initializeMatrices() {
+        matrixA.resize(size, std::vector<double>(size));
+        matrixB.resize(size, std::vector<double>(size));
+        result.resize(size, std::vector<double>(size, 0.0));
+
+        #pragma omp parallel for collapse(2)
+        for (int i = 0; i < size; ++i) {
+            for (int j = 0; j < size; ++j) {
+                matrixA[i][j] = static_cast<double>(rand()) / RAND_MAX;
+                matrixB[i][j] = static_cast<double>(rand()) / RAND_MAX;
             }
         }
     }
 
 public:
-    ParallelMatrixMultiplier(size_t rA, size_t cA, size_t rB, size_t cB) 
-        : rowsA(rA), colsA(cA), rowsB(rB), colsB(cB) {
-        if (colsA != rowsB) {
-            throw std::invalid_argument("Matrix dimensions incompatible for multiplication");
-        }
-        
+    ParallelMatrixMultiplier(int n) : size(n) {
         srand(static_cast<unsigned>(time(nullptr)));
-        initializeRandomMatrix(matrixA, rowsA, colsA);
-        initializeRandomMatrix(matrixB, rowsB, colsB);
-        result.resize(rowsA, std::vector<double>(colsB, 0.0));
+        initializeMatrices();
     }
 
     void multiplySequential() {
-        for (size_t i = 0; i < rowsA; ++i) {
-            for (size_t j = 0; j < colsB; ++j) {
+        for (int i = 0; i < size; ++i) {
+            for (int j = 0; j < size; ++j) {
                 double sum = 0.0;
-                for (size_t k = 0; k < colsA; ++k) {
+                for (int k = 0; k < size; ++k) {
                     sum += matrixA[i][k] * matrixB[k][j];
                 }
                 result[i][j] = sum;
@@ -47,11 +45,11 @@ public:
     }
 
     void multiplyParallel() {
-        #pragma omp parallel for collapse(2) schedule(dynamic)
-        for (size_t i = 0; i < rowsA; ++i) {
-            for (size_t j = 0; j < colsB; ++j) {
+        #pragma omp parallel for collapse(2)
+        for (int i = 0; i < size; ++i) {
+            for (int j = 0; j < size; ++j) {
                 double sum = 0.0;
-                for (size_t k = 0; k < colsA; ++k) {
+                for (int k = 0; k < size; ++k) {
                     sum += matrixA[i][k] * matrixB[k][j];
                 }
                 result[i][j] = sum;
@@ -59,102 +57,50 @@ public:
         }
     }
 
-    void verifyMultiplication() {
-        std::vector<std::vector<double>> sequentialResult(rowsA, std::vector<double>(colsB, 0.0));
-        
-        for (size_t i = 0; i < rowsA; ++i) {
-            for (size_t j = 0; j < colsB; ++j) {
-                double sum = 0.0;
-                for (size_t k = 0; k < colsA; ++k) {
-                    sum += matrixA[i][k] * matrixB[k][j];
-                }
-                sequentialResult[i][j] = sum;
-            }
-        }
-
-        double tolerance = 1e-9;
+    void verifyResult(const std::vector<std::vector<double>>& reference) {
+        double tolerance = 1e-10;
         bool correct = true;
-        for (size_t i = 0; i < rowsA && correct; ++i) {
-            for (size_t j = 0; j < colsB && correct; ++j) {
-                if (std::abs(result[i][j] - sequentialResult[i][j]) > tolerance) {
+        
+        for (int i = 0; i < size && correct; ++i) {
+            for (int j = 0; j < size && correct; ++j) {
+                if (std::abs(result[i][j] - reference[i][j]) > tolerance) {
                     correct = false;
                 }
             }
         }
-
-        if (correct) {
-            std::cout << "Matrix multiplication verified successfully." << std::endl;
-        } else {
-            std::cout << "Matrix multiplication verification failed!" << std::endl;
-        }
-    }
-
-    void printMatrix(const std::vector<std::vector<double>>& matrix, size_t maxRows = 5, size_t maxCols = 5) {
-        size_t printRows = std::min(matrix.size(), maxRows);
-        size_t printCols = (matrix.empty()) ? 0 : std::min(matrix[0].size(), maxCols);
         
-        for (size_t i = 0; i < printRows; ++i) {
-            for (size_t j = 0; j < printCols; ++j) {
-                std::cout << matrix[i][j] << "\t";
-            }
-            if (printCols < matrix[0].size()) {
-                std::cout << "...";
-            }
-            std::cout << std::endl;
-        }
-        if (printRows < matrix.size()) {
-            std::cout << "..." << std::endl;
-        }
+        std::cout << "Result verification: " 
+                  << (correct ? "PASSED" : "FAILED") << std::endl;
     }
 
     void benchmark() {
-        double startTime, endTime;
+        std::vector<std::vector<double>> sequentialResult(size, std::vector<double>(size));
         
-        std::cout << "Benchmarking sequential multiplication..." << std::endl;
-        startTime = omp_get_wtime();
+        double start = omp_get_wtime();
         multiplySequential();
-        endTime = omp_get_wtime();
-        double sequentialTime = endTime - startTime;
-        std::cout << "Sequential time: " << sequentialTime << " seconds" << std::endl;
-
-        std::cout << "Benchmarking parallel multiplication..." << std::endl;
-        startTime = omp_get_wtime();
+        double seqTime = omp_get_wtime() - start;
+        sequentialResult = result;
+        
+        std::fill(result.begin(), result.end(), std::vector<double>(size, 0.0));
+        
+        start = omp_get_wtime();
         multiplyParallel();
-        endTime = omp_get_wtime();
-        double parallelTime = endTime - startTime;
-        std::cout << "Parallel time: " << parallelTime << " seconds" << std::endl;
-
-        std::cout << "Speedup: " << sequentialTime / parallelTime << "x" << std::endl;
-        std::cout << "Efficiency: " << (sequentialTime / parallelTime) / omp_get_max_threads() * 100 << "%" << std::endl;
+        double parTime = omp_get_wtime() - start;
+        
+        std::cout << "Matrix size: " << size << "x" << size << std::endl;
+        std::cout << "Sequential time: " << seqTime << " seconds" << std::endl;
+        std::cout << "Parallel time: " << parTime << " seconds" << std::endl;
+        std::cout << "Speedup: " << seqTime / parTime << "x" << std::endl;
+        
+        verifyResult(sequentialResult);
     }
 };
 
 int main() {
-    try {
-        const size_t ROWS_A = 500;
-        const size_t COLS_A = 500;
-        const size_t ROWS_B = 500;
-        const size_t COLS_B = 500;
-
-        std::cout << "Initializing matrices of size " 
-                  << ROWS_A << "x" << COLS_A << " and " 
-                  << ROWS_B << "x" << COLS_B << "..." << std::endl;
-        
-        ParallelMatrixMultiplier multiplier(ROWS_A, COLS_A, ROWS_B, COLS_B);
-        
-        std::cout << "Matrix A (first 5x5 elements):" << std::endl;
-        multiplier.printMatrix(multiplier.matrixA);
-        
-        std::cout << "\nMatrix B (first 5x5 elements):" << std::endl;
-        multiplier.printMatrix(multiplier.matrixB);
-        
-        multiplier.benchmark();
-        multiplier.verifyMultiplication();
-        
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return 1;
-    }
+    const int MATRIX_SIZE = 500;
+    
+    ParallelMatrixMultiplier multiplier(MATRIX_SIZE);
+    multiplier.benchmark();
     
     return 0;
 }
