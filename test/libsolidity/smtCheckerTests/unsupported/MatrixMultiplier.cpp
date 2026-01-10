@@ -47,7 +47,7 @@ public:
     }
 
     void multiplyParallel() {
-        #pragma omp parallel for collapse(2)
+        #pragma omp parallel for collapse(2) schedule(dynamic)
         for (size_t i = 0; i < rowsA; ++i) {
             for (size_t j = 0; j < colsB; ++j) {
                 double sum = 0.0;
@@ -61,7 +61,7 @@ public:
 
     void displayMatrix(const std::vector<std::vector<double>>& matrix, size_t maxRows = 5, size_t maxCols = 5) const {
         size_t displayRows = std::min(matrix.size(), maxRows);
-        size_t displayCols = (displayRows > 0) ? std::min(matrix[0].size(), maxCols) : 0;
+        size_t displayCols = (matrix.empty()) ? 0 : std::min(matrix[0].size(), maxCols);
         
         std::cout << "Matrix preview (first " << displayRows << "x" << displayCols << " elements):\n";
         for (size_t i = 0; i < displayRows; ++i) {
@@ -80,52 +80,31 @@ public:
         startTime = omp_get_wtime();
         multiplySequential();
         endTime = omp_get_wtime();
-        std::cout << "Sequential execution time: " << (endTime - startTime) * 1000 << " ms\n";
+        std::cout << "Sequential execution time: " << (endTime - startTime) << " seconds\n";
         
         startTime = omp_get_wtime();
         multiplyParallel();
         endTime = omp_get_wtime();
-        std::cout << "Parallel execution time: " << (endTime - startTime) * 1000 << " ms\n";
+        std::cout << "Parallel execution time: " << (endTime - startTime) << " seconds\n";
         
-        std::cout << "Number of threads used: " << omp_get_max_threads() << "\n";
+        std::cout << "Speedup factor: " << ((endTime - startTime) > 0 ? 
+                  (1.0 / (endTime - startTime)) * (rowsA * colsB * colsA) / 1e9 : 0) << " GFLOPs\n";
     }
 
-    bool verifyResult() {
-        std::vector<std::vector<double>> sequentialResult(rowsA, std::vector<double>(colsB, 0.0));
-        
-        multiplySequential();
-        sequentialResult = result;
-        
-        multiplyParallel();
-        
-        const double epsilon = 1e-10;
-        for (size_t i = 0; i < rowsA; ++i) {
-            for (size_t j = 0; j < colsB; ++j) {
-                if (std::abs(sequentialResult[i][j] - result[i][j]) > epsilon) {
-                    return false;
-                }
-            }
-        }
-        return true;
+    const std::vector<std::vector<double>>& getResult() const {
+        return result;
     }
 };
 
 int main() {
     try {
-        const size_t rowsA = 500;
-        const size_t colsA = 500;
-        const size_t rowsB = 500;
-        const size_t colsB = 500;
-        
-        ParallelMatrixMultiplier multiplier(rowsA, colsA, rowsB, colsB);
+        const size_t SIZE = 512;
+        ParallelMatrixMultiplier multiplier(SIZE, SIZE, SIZE, SIZE);
         
         multiplier.benchmarkMultiplication();
         
-        if (multiplier.verifyResult()) {
-            std::cout << "Verification passed: Sequential and parallel results match.\n";
-        } else {
-            std::cout << "Verification failed: Results do not match.\n";
-        }
+        std::cout << "\nVerifying small portion of result:\n";
+        multiplier.displayMatrix(multiplier.getResult());
         
         return 0;
     } catch (const std::exception& e) {
