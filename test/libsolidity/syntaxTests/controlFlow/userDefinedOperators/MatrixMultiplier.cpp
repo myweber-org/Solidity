@@ -1,88 +1,90 @@
 
 #include <iostream>
 #include <vector>
-#include <stdexcept>
+#include <cstdlib>
+#include <ctime>
+#include <omp.h>
 
-class MatrixMultiplier {
-public:
-    static std::vector<std::vector<double>> multiply(const std::vector<std::vector<double>>& matrixA,
-                                                     const std::vector<std::vector<double>>& matrixB) {
-        if (matrixA.empty() || matrixB.empty()) {
-            throw std::invalid_argument("Input matrices cannot be empty");
-        }
+using namespace std;
 
-        size_t rowsA = matrixA.size();
-        size_t colsA = matrixA[0].size();
-        size_t rowsB = matrixB.size();
-        size_t colsB = matrixB[0].size();
-
-        if (colsA != rowsB) {
-            throw std::invalid_argument("Matrix dimensions are incompatible for multiplication");
-        }
-
-        for (size_t i = 0; i < rowsA; ++i) {
-            if (matrixA[i].size() != colsA) {
-                throw std::invalid_argument("Matrix A has inconsistent row sizes");
-            }
-        }
-
-        for (size_t i = 0; i < rowsB; ++i) {
-            if (matrixB[i].size() != colsB) {
-                throw std::invalid_argument("Matrix B has inconsistent row sizes");
-            }
-        }
-
-        std::vector<std::vector<double>> result(rowsA, std::vector<double>(colsB, 0.0));
-
-        for (size_t i = 0; i < rowsA; ++i) {
-            for (size_t j = 0; j < colsB; ++j) {
-                for (size_t k = 0; k < colsA; ++k) {
-                    result[i][j] += matrixA[i][k] * matrixB[k][j];
-                }
-            }
-        }
-
-        return result;
-    }
-
-    static void printMatrix(const std::vector<std::vector<double>>& matrix) {
-        for (const auto& row : matrix) {
-            for (double val : row) {
-                std::cout << val << " ";
-            }
-            std::cout << std::endl;
+vector<vector<double>> generateRandomMatrix(int rows, int cols) {
+    vector<vector<double>> matrix(rows, vector<double>(cols));
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX;
         }
     }
-};
+    return matrix;
+}
+
+vector<vector<double>> multiplyMatrices(const vector<vector<double>>& A,
+                                        const vector<vector<double>>& B) {
+    int rowsA = A.size();
+    int colsA = A[0].size();
+    int colsB = B[0].size();
+    
+    vector<vector<double>> result(rowsA, vector<double>(colsB, 0.0));
+    
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < rowsA; ++i) {
+        for (int j = 0; j < colsB; ++j) {
+            double sum = 0.0;
+            for (int k = 0; k < colsA; ++k) {
+                sum += A[i][k] * B[k][j];
+            }
+            result[i][j] = sum;
+        }
+    }
+    
+    return result;
+}
+
+void printMatrixStats(const vector<vector<double>>& matrix) {
+    int rows = matrix.size();
+    int cols = matrix[0].size();
+    
+    double sum = 0.0;
+    double minVal = matrix[0][0];
+    double maxVal = matrix[0][0];
+    
+    #pragma omp parallel for reduction(+:sum) reduction(min:minVal) reduction(max:maxVal) collapse(2)
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            double val = matrix[i][j];
+            sum += val;
+            if (val < minVal) minVal = val;
+            if (val > maxVal) maxVal = val;
+        }
+    }
+    
+    double avg = sum / (rows * cols);
+    cout << "Matrix Statistics:" << endl;
+    cout << "  Dimensions: " << rows << " x " << cols << endl;
+    cout << "  Average value: " << avg << endl;
+    cout << "  Minimum value: " << minVal << endl;
+    cout << "  Maximum value: " << maxVal << endl;
+}
 
 int main() {
-    try {
-        std::vector<std::vector<double>> matrixA = {
-            {1.0, 2.0, 3.0},
-            {4.0, 5.0, 6.0}
-        };
-
-        std::vector<std::vector<double>> matrixB = {
-            {7.0, 8.0},
-            {9.0, 10.0},
-            {11.0, 12.0}
-        };
-
-        std::cout << "Matrix A:" << std::endl;
-        MatrixMultiplier::printMatrix(matrixA);
-
-        std::cout << "\nMatrix B:" << std::endl;
-        MatrixMultiplier::printMatrix(matrixB);
-
-        std::vector<std::vector<double>> result = MatrixMultiplier::multiply(matrixA, matrixB);
-
-        std::cout << "\nResult of multiplication:" << std::endl;
-        MatrixMultiplier::printMatrix(result);
-
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return 1;
-    }
-
+    srand(static_cast<unsigned>(time(nullptr)));
+    
+    const int SIZE = 500;
+    
+    cout << "Generating random matrices of size " << SIZE << "x" << SIZE << "..." << endl;
+    auto matrixA = generateRandomMatrix(SIZE, SIZE);
+    auto matrixB = generateRandomMatrix(SIZE, SIZE);
+    
+    cout << "Performing matrix multiplication with OpenMP..." << endl;
+    double startTime = omp_get_wtime();
+    
+    auto result = multiplyMatrices(matrixA, matrixB);
+    
+    double endTime = omp_get_wtime();
+    double elapsedTime = endTime - startTime;
+    
+    cout << "Multiplication completed in " << elapsedTime << " seconds" << endl;
+    
+    printMatrixStats(result);
+    
     return 0;
 }
