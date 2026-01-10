@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <filesystem>
 #include <chrono>
@@ -8,34 +7,28 @@
 
 namespace fs = std::filesystem;
 
-class FileSystemWatcher {
+class FileWatcher {
 public:
-    explicit FileSystemWatcher(const fs::path& directory_path)
-        : watch_path(directory_path) {
-        if (!fs::exists(watch_path) || !fs::is_directory(watch_path)) {
-            throw std::runtime_error("Invalid directory path provided.");
+    FileWatcher(const fs::path& path) : watch_path(path) {
+        if (!fs::exists(path) || !fs::is_directory(path)) {
+            throw std::runtime_error("Path does not exist or is not a directory");
         }
-        populate_snapshot();
+        updateSnapshot();
     }
 
-    void start_monitoring(int interval_seconds = 1) {
-        std::cout << "Starting to monitor: " << watch_path.string() << std::endl;
-        while (monitoring_active) {
+    void startWatching(int interval_seconds = 1) {
+        std::cout << "Watching directory: " << watch_path << std::endl;
+        while (true) {
             std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
-            check_for_changes();
+            checkForChanges();
         }
-    }
-
-    void stop_monitoring() {
-        monitoring_active = false;
     }
 
 private:
     fs::path watch_path;
     std::unordered_map<std::string, fs::file_time_type> file_snapshot;
-    bool monitoring_active{true};
 
-    void populate_snapshot() {
+    void updateSnapshot() {
         file_snapshot.clear();
         for (const auto& entry : fs::recursive_directory_iterator(watch_path)) {
             if (fs::is_regular_file(entry.path())) {
@@ -44,46 +37,49 @@ private:
         }
     }
 
-    void check_for_changes() {
-        auto current_state = file_snapshot;
-        bool changes_detected = false;
-
+    void checkForChanges() {
         for (const auto& entry : fs::recursive_directory_iterator(watch_path)) {
-            if (fs::is_regular_file(entry.path())) {
-                std::string file_path = entry.path().string();
-                auto current_write_time = fs::last_write_time(entry.path());
+            if (!fs::is_regular_file(entry.path())) continue;
 
-                if (file_snapshot.find(file_path) == file_snapshot.end()) {
-                    std::cout << "[NEW] File created: " << file_path << std::endl;
-                    changes_detected = true;
-                } else if (file_snapshot[file_path] != current_write_time) {
-                    std::cout << "[MODIFIED] File changed: " << file_path << std::endl;
-                    changes_detected = true;
-                }
-                current_state[file_path] = current_write_time;
+            std::string file_path = entry.path().string();
+            auto current_time = fs::last_write_time(entry.path());
+
+            if (file_snapshot.find(file_path) == file_snapshot.end()) {
+                std::cout << "New file detected: " << file_path << std::endl;
+                file_snapshot[file_path] = current_time;
+            } else if (file_snapshot[file_path] != current_time) {
+                std::cout << "File modified: " << file_path << std::endl;
+                file_snapshot[file_path] = current_time;
             }
         }
 
+        std::vector<std::string> to_remove;
         for (const auto& [file_path, _] : file_snapshot) {
-            if (current_state.find(file_path) == current_state.end()) {
-                std::cout << "[DELETED] File removed: " << file_path << std::endl;
-                changes_detected = true;
+            if (!fs::exists(file_path)) {
+                std::cout << "File deleted: " << file_path << std::endl;
+                to_remove.push_back(file_path);
             }
         }
 
-        if (changes_detected) {
-            file_snapshot.swap(current_state);
+        for (const auto& file_path : to_remove) {
+            file_snapshot.erase(file_path);
         }
     }
 };
 
-int main() {
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <directory_to_watch>" << std::endl;
+        return 1;
+    }
+
     try {
-        FileSystemWatcher watcher(".");
-        watcher.start_monitoring(2);
+        FileWatcher watcher(argv[1]);
+        watcher.startWatching();
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
+
     return 0;
 }
