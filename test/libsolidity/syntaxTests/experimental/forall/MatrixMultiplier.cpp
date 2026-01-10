@@ -1,116 +1,127 @@
 
 #include <iostream>
 #include <vector>
-#include <cstdlib>
-#include <ctime>
+#include <random>
+#include <chrono>
 #include <omp.h>
 
-class ParallelMatrixMultiplier {
-private:
-    std::vector<std::vector<double>> matrixA;
-    std::vector<std::vector<double>> matrixB;
-    std::vector<std::vector<double>> result;
-    size_t rowsA, colsA, rowsB, colsB;
+std::vector<std::vector<double>> generateRandomMatrix(int rows, int cols) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(1.0, 100.0);
+    
+    std::vector<std::vector<double>> matrix(rows, std::vector<double>(cols));
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            matrix[i][j] = dis(gen);
+        }
+    }
+    return matrix;
+}
 
-    void initializeRandomMatrix(std::vector<std::vector<double>>& matrix, size_t rows, size_t cols) {
-        matrix.resize(rows, std::vector<double>(cols));
-        for (size_t i = 0; i < rows; ++i) {
-            for (size_t j = 0; j < cols; ++j) {
-                matrix[i][j] = static_cast<double>(rand()) / RAND_MAX * 100.0;
+std::vector<std::vector<double>> multiplyMatricesParallel(
+    const std::vector<std::vector<double>>& A,
+    const std::vector<std::vector<double>>& B) {
+    
+    int rowsA = A.size();
+    int colsA = A[0].size();
+    int colsB = B[0].size();
+    
+    std::vector<std::vector<double>> result(rowsA, std::vector<double>(colsB, 0.0));
+    
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < rowsA; ++i) {
+        for (int j = 0; j < colsB; ++j) {
+            double sum = 0.0;
+            for (int k = 0; k < colsA; ++k) {
+                sum += A[i][k] * B[k][j];
+            }
+            result[i][j] = sum;
+        }
+    }
+    
+    return result;
+}
+
+std::vector<std::vector<double>> multiplyMatricesSequential(
+    const std::vector<std::vector<double>>& A,
+    const std::vector<std::vector<double>>& B) {
+    
+    int rowsA = A.size();
+    int colsA = A[0].size();
+    int colsB = B[0].size();
+    
+    std::vector<std::vector<double>> result(rowsA, std::vector<double>(colsB, 0.0));
+    
+    for (int i = 0; i < rowsA; ++i) {
+        for (int j = 0; j < colsB; ++j) {
+            double sum = 0.0;
+            for (int k = 0; k < colsA; ++k) {
+                sum += A[i][k] * B[k][j];
+            }
+            result[i][j] = sum;
+        }
+    }
+    
+    return result;
+}
+
+bool verifyResults(const std::vector<std::vector<double>>& result1,
+                   const std::vector<std::vector<double>>& result2,
+                   double tolerance = 1e-6) {
+    
+    if (result1.size() != result2.size() || result1[0].size() != result2[0].size()) {
+        return false;
+    }
+    
+    for (size_t i = 0; i < result1.size(); ++i) {
+        for (size_t j = 0; j < result1[0].size(); ++j) {
+            if (std::abs(result1[i][j] - result2[i][j]) > tolerance) {
+                return false;
             }
         }
     }
-
-public:
-    ParallelMatrixMultiplier(size_t rA, size_t cA, size_t rB, size_t cB) 
-        : rowsA(rA), colsA(cA), rowsB(rB), colsB(cB) {
-        if (colsA != rowsB) {
-            throw std::invalid_argument("Matrix dimensions incompatible for multiplication");
-        }
-        
-        srand(static_cast<unsigned>(time(nullptr)));
-        initializeRandomMatrix(matrixA, rowsA, colsA);
-        initializeRandomMatrix(matrixB, rowsB, colsB);
-        result.resize(rowsA, std::vector<double>(colsB, 0.0));
-    }
-
-    void multiplySequential() {
-        for (size_t i = 0; i < rowsA; ++i) {
-            for (size_t j = 0; j < colsB; ++j) {
-                double sum = 0.0;
-                for (size_t k = 0; k < colsA; ++k) {
-                    sum += matrixA[i][k] * matrixB[k][j];
-                }
-                result[i][j] = sum;
-            }
-        }
-    }
-
-    void multiplyParallel() {
-        #pragma omp parallel for collapse(2)
-        for (size_t i = 0; i < rowsA; ++i) {
-            for (size_t j = 0; j < colsB; ++j) {
-                double sum = 0.0;
-                for (size_t k = 0; k < colsA; ++k) {
-                    sum += matrixA[i][k] * matrixB[k][j];
-                }
-                result[i][j] = sum;
-            }
-        }
-    }
-
-    void displayResult(size_t maxRows = 5, size_t maxCols = 5) const {
-        size_t displayRows = std::min(maxRows, rowsA);
-        size_t displayCols = std::min(maxCols, colsB);
-        
-        std::cout << "Result matrix (first " << displayRows << "x" << displayCols << " elements):\n";
-        for (size_t i = 0; i < displayRows; ++i) {
-            for (size_t j = 0; j < displayCols; ++j) {
-                std::cout << result[i][j] << "\t";
-            }
-            std::cout << "\n";
-        }
-    }
-
-    double verifyMultiplication(const std::vector<std::vector<double>>& reference) const {
-        double error = 0.0;
-        for (size_t i = 0; i < rowsA; ++i) {
-            for (size_t j = 0; j < colsB; ++j) {
-                error += std::abs(result[i][j] - reference[i][j]);
-            }
-        }
-        return error;
-    }
-};
+    return true;
+}
 
 int main() {
-    const size_t SIZE = 500;
+    const int ROWS_A = 500;
+    const int COLS_A = 500;
+    const int COLS_B = 500;
     
-    try {
-        ParallelMatrixMultiplier multiplier(SIZE, SIZE, SIZE, SIZE);
-        
-        std::cout << "Matrix multiplication for " << SIZE << "x" << SIZE << " matrices\n";
-        
-        double startTime = omp_get_wtime();
-        multiplier.multiplySequential();
-        double sequentialTime = omp_get_wtime() - startTime;
-        std::cout << "Sequential execution time: " << sequentialTime << " seconds\n";
-        
-        startTime = omp_get_wtime();
-        multiplier.multiplyParallel();
-        double parallelTime = omp_get_wtime() - startTime;
-        std::cout << "Parallel execution time: " << parallelTime << " seconds\n";
-        
-        std::cout << "Speedup factor: " << sequentialTime / parallelTime << "\n";
-        
-        if (SIZE <= 10) {
-            multiplier.displayResult();
-        }
-        
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+    std::cout << "Generating random matrices..." << std::endl;
+    auto matrixA = generateRandomMatrix(ROWS_A, COLS_A);
+    auto matrixB = generateRandomMatrix(COLS_A, COLS_B);
+    
+    std::cout << "Matrix dimensions: " << ROWS_A << "x" << COLS_A 
+              << " * " << COLS_A << "x" << COLS_B << std::endl;
+    
+    std::cout << "\nPerforming sequential multiplication..." << std::endl;
+    auto startSeq = std::chrono::high_resolution_clock::now();
+    auto resultSeq = multiplyMatricesSequential(matrixA, matrixB);
+    auto endSeq = std::chrono::high_resolution_clock::now();
+    auto durationSeq = std::chrono::duration_cast<std::chrono::milliseconds>(endSeq - startSeq);
+    
+    std::cout << "Sequential time: " << durationSeq.count() << " ms" << std::endl;
+    
+    std::cout << "\nPerforming parallel multiplication..." << std::endl;
+    auto startPar = std::chrono::high_resolution_clock::now();
+    auto resultPar = multiplyMatricesParallel(matrixA, matrixB);
+    auto endPar = std::chrono::high_resolution_clock::now();
+    auto durationPar = std::chrono::duration_cast<std::chrono::milliseconds>(endPar - startPar);
+    
+    std::cout << "Parallel time: " << durationPar.count() << " ms" << std::endl;
+    
+    std::cout << "\nVerifying results..." << std::endl;
+    if (verifyResults(resultSeq, resultPar)) {
+        std::cout << "Results match! Verification successful." << std::endl;
+    } else {
+        std::cout << "Error: Results do not match!" << std::endl;
         return 1;
     }
+    
+    double speedup = static_cast<double>(durationSeq.count()) / durationPar.count();
+    std::cout << "\nSpeedup factor: " << speedup << "x" << std::endl;
     
     return 0;
 }
