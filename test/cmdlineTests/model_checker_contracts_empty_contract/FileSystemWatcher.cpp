@@ -167,4 +167,200 @@ int main() {
     }
 
     return 0;
+}#include <iostream>
+#include <filesystem>
+#include <chrono>
+#include <thread>
+#include <unordered_set>
+#include <functional>
+
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <sys/inotify.h>
+    #include <unistd.h>
+    #include <limits.h>
+#endif
+
+namespace fs = std::filesystem;
+
+class FileSystemWatcher {
+public:
+    using Callback = std::function<void(const fs::path&, const std::string&)>;
+
+    FileSystemWatcher(const fs::path& path, Callback callback)
+        : watch_path_(fs::absolute(path)), callback_(callback), running_(false) {
+        if (!fs::exists(watch_path_) || !fs::is_directory(watch_path_)) {
+            throw std::runtime_error("Invalid directory path provided.");
+        }
+    }
+
+    ~FileSystemWatcher() {
+        stop();
+    }
+
+    void start() {
+        running_ = true;
+        worker_thread_ = std::thread(&FileSystemWatcher::watch_loop, this);
+    }
+
+    void stop() {
+        running_ = false;
+        if (worker_thread_.joinable()) {
+            worker_thread_.join();
+        }
+    }
+
+private:
+    fs::path watch_path_;
+    Callback callback_;
+    bool running_;
+    std::thread worker_thread_;
+    std::unordered_set<std::string> known_files_;
+
+    void watch_loop() {
+        scan_initial_files();
+
+#ifdef _WIN32
+        watch_loop_windows();
+#else
+        watch_loop_linux();
+#endif
+    }
+
+    void scan_initial_files() {
+        known_files_.clear();
+        for (const auto& entry : fs::directory_iterator(watch_path_)) {
+            if (entry.is_regular_file()) {
+                known_files_.insert(entry.path().filename().string());
+            }
+        }
+    }
+
+    void detect_changes() {
+        std::unordered_set<std::string> current_files;
+
+        for (const auto& entry : fs::directory_iterator(watch_path_)) {
+            if (entry.is_regular_file()) {
+                std::string filename = entry.path().filename().string();
+                current_files.insert(filename);
+
+                if (known_files_.find(filename) == known_files_.end()) {
+                    callback_(entry.path(), "created");
+                }
+            }
+        }
+
+        for (const auto& old_file : known_files_) {
+            if (current_files.find(old_file) == current_files.end()) {
+                callback_(watch_path_ / old_file, "deleted");
+            }
+        }
+
+        known_files_.swap(current_files);
+    }
+
+#ifdef _WIN32
+    void watch_loop_windows() {
+        HANDLE dir_handle = CreateFileW(
+            watch_path_.c_str(),
+            FILE_LIST_DIRECTORY,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            nullptr
+        );
+
+        if (dir_handle == INVALID_HANDLE_VALUE) return;
+
+        constexpr DWORD buffer_size = 4096;
+        std::vector<BYTE> buffer(buffer_size);
+
+        while (running_) {
+            DWORD bytes_returned = 0;
+            if (ReadDirectoryChangesW(
+                dir_handle,
+                buffer.data(),
+                buffer_size,
+                TRUE,
+                FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
+                &bytes_returned,
+                nullptr,
+                nullptr)) {
+
+                if (bytes_returned > 0) {
+                    detect_changes();
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        CloseHandle(dir_handle);
+    }
+#else
+    void watch_loop_linux() {
+        int inotify_fd = inotify_init();
+        if (inotify_fd < 0) return;
+
+        int watch_desc = inotify_add_watch(inotify_fd, watch_path_.c_str(),
+                                          IN_CREATE | IN_DELETE | IN_MODIFY);
+        if (watch_desc < 0) {
+            close(inotify_fd);
+            return;
+        }
+
+        constexpr size_t event_size = sizeof(struct inotify_event);
+        constexpr size_t buffer_size = 1024 * (event_size + NAME_MAX + 1);
+        std::vector<char> buffer(buffer_size);
+
+        while (running_) {
+            fd_set fds;
+            FD_ZERO(&fds);
+            FD_SET(inotify_fd, &fds);
+
+            struct timeval timeout = {1, 0};
+
+            int select_result = select(inotify_fd + 1, &fds, nullptr, nullptr, &timeout);
+            if (select_result > 0 && FD_ISSET(inotify_fd, &fds)) {
+                ssize_t length = read(inotify_fd, buffer.data(), buffer_size);
+                if (length > 0) {
+                    detect_changes();
+                }
+            } else if (select_result < 0) {
+                break;
+            }
+        }
+
+        inotify_rm_watch(inotify_fd, watch_desc);
+        close(inotify_fd);
+    }
+#endif
+};
+
+void example_callback(const fs::path& path, const std::string& action) {
+    std::cout << "File " << path.filename() << " was " << action << " at "
+              << std::chrono::system_clock::now().time_since_epoch().count()
+              << " nanoseconds since epoch.\n";
+}
+
+int main() {
+    try {
+        fs::path current_dir = fs::current_path();
+        FileSystemWatcher watcher(current_dir, example_callback);
+
+        std::cout << "Watching directory: " << current_dir << "\n";
+        std::cout << "Press Enter to stop watching...\n";
+
+        watcher.start();
+
+        std::cin.get();
+        watcher.stop();
+
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n";
+        return 1;
+    }
+
+    return 0;
 }
