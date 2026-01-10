@@ -1,88 +1,73 @@
-
 #include <iostream>
 #include <vector>
-#include <random>
-#include <chrono>
-#include <omp.h>
+#include <stdexcept>
 
-class Matrix {
-private:
-    std::vector<std::vector<double>> data;
-    size_t rows, cols;
-
-public:
-    Matrix(size_t r, size_t c) : rows(r), cols(c), data(r, std::vector<double>(c, 0.0)) {}
-
-    void randomFill() {
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_real_distribution<> dis(1.0, 10.0);
-
-        #pragma omp parallel for collapse(2)
-        for (size_t i = 0; i < rows; ++i) {
-            for (size_t j = 0; j < cols; ++j) {
-                data[i][j] = dis(gen);
+std::vector<std::vector<int>> multiplyMatrices(const std::vector<std::vector<int>>& matrixA, const std::vector<std::vector<int>>& matrixB) {
+    if (matrixA.empty() || matrixB.empty()) {
+        throw std::invalid_argument("Input matrices cannot be empty.");
+    }
+    
+    size_t rowsA = matrixA.size();
+    size_t colsA = matrixA[0].size();
+    size_t rowsB = matrixB.size();
+    size_t colsB = matrixB[0].size();
+    
+    for (const auto& row : matrixA) {
+        if (row.size() != colsA) {
+            throw std::invalid_argument("Matrix A rows have inconsistent sizes.");
+        }
+    }
+    
+    for (const auto& row : matrixB) {
+        if (row.size() != colsB) {
+            throw std::invalid_argument("Matrix B rows have inconsistent sizes.");
+        }
+    }
+    
+    if (colsA != rowsB) {
+        throw std::invalid_argument("Matrix dimensions are incompatible for multiplication.");
+    }
+    
+    std::vector<std::vector<int>> result(rowsA, std::vector<int>(colsB, 0));
+    
+    for (size_t i = 0; i < rowsA; ++i) {
+        for (size_t j = 0; j < colsB; ++j) {
+            for (size_t k = 0; k < colsA; ++k) {
+                result[i][j] += matrixA[i][k] * matrixB[k][j];
             }
         }
     }
+    
+    return result;
+}
 
-    Matrix multiply(const Matrix& other) const {
-        if (cols != other.rows) {
-            throw std::invalid_argument("Matrix dimensions mismatch for multiplication");
-        }
-
-        Matrix result(rows, other.cols);
-
-        #pragma omp parallel for collapse(2)
-        for (size_t i = 0; i < rows; ++i) {
-            for (size_t j = 0; j < other.cols; ++j) {
-                double sum = 0.0;
-                #pragma omp simd reduction(+:sum)
-                for (size_t k = 0; k < cols; ++k) {
-                    sum += data[i][k] * other.data[k][j];
-                }
-                result.data[i][j] = sum;
-            }
-        }
-
-        return result;
-    }
-
-    void displayFirstElements(size_t count = 5) const {
-        std::cout << "First " << count << " elements: ";
-        for (size_t i = 0; i < std::min(count, rows * cols); ++i) {
-            std::cout << data[i / cols][i % cols] << " ";
+void printMatrix(const std::vector<std::vector<int>>& matrix) {
+    for (const auto& row : matrix) {
+        for (int val : row) {
+            std::cout << val << " ";
         }
         std::cout << std::endl;
     }
-};
+}
 
 int main() {
-    const size_t N = 1000;
+    try {
+        std::vector<std::vector<int>> A = {{1, 2, 3}, {4, 5, 6}};
+        std::vector<std::vector<int>> B = {{7, 8}, {9, 10}, {11, 12}};
+        
+        std::vector<std::vector<int>> C = multiplyMatrices(A, B);
+        
+        std::cout << "Matrix A:" << std::endl;
+        printMatrix(A);
+        std::cout << "Matrix B:" << std::endl;
+        printMatrix(B);
+        std::cout << "Result of A * B:" << std::endl;
+        printMatrix(C);
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
     
-    Matrix A(N, N);
-    Matrix B(N, N);
-
-    std::cout << "Generating random matrices..." << std::endl;
-    A.randomFill();
-    B.randomFill();
-
-    std::cout << "Matrix A - ";
-    A.displayFirstElements();
-    std::cout << "Matrix B - ";
-    B.displayFirstElements();
-
-    std::cout << "Performing matrix multiplication..." << std::endl;
-    auto start = std::chrono::high_resolution_clock::now();
-
-    Matrix C = A.multiply(B);
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-    std::cout << "Result matrix C - ";
-    C.displayFirstElements();
-    std::cout << "Multiplication completed in " << duration.count() << " ms" << std::endl;
-
     return 0;
 }
