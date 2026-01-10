@@ -7,49 +7,70 @@
 
 namespace fs = std::filesystem;
 
-void renameFilesInDirectory(const std::string& directoryPath, const std::string& newPrefix) {
-    std::vector<fs::path> files;
-    
-    for (const auto& entry : fs::directory_iterator(directoryPath)) {
-        if (fs::is_regular_file(entry.status())) {
-            files.push_back(entry.path());
+class FileRenamer {
+public:
+    static bool renameFilesInDirectory(const std::string& directoryPath,
+                                       const std::string& prefix,
+                                       int startNumber = 1,
+                                       const std::string& extensionFilter = "") {
+        if (!fs::exists(directoryPath) || !fs::is_directory(directoryPath)) {
+            std::cerr << "Error: Invalid directory path." << std::endl;
+            return false;
         }
-    }
-    
-    std::sort(files.begin(), files.end());
-    
-    int counter = 1;
-    for (const auto& file : files) {
-        std::string extension = file.extension().string();
-        std::string newFilename = newPrefix + "_" + std::to_string(counter) + extension;
-        fs::path newPath = file.parent_path() / newFilename;
-        
-        try {
-            fs::rename(file, newPath);
-            std::cout << "Renamed: " << file.filename() << " -> " << newFilename << std::endl;
-        } catch (const fs::filesystem_error& e) {
-            std::cerr << "Error renaming " << file.filename() << ": " << e.what() << std::endl;
+
+        std::vector<fs::path> files;
+        for (const auto& entry : fs::directory_iterator(directoryPath)) {
+            if (fs::is_regular_file(entry.status())) {
+                if (extensionFilter.empty() ||
+                    entry.path().extension() == extensionFilter) {
+                    files.push_back(entry.path());
+                }
+            }
         }
-        
-        counter++;
+
+        if (files.empty()) {
+            std::cout << "No files found matching criteria." << std::endl;
+            return true;
+        }
+
+        std::sort(files.begin(), files.end());
+
+        int currentNumber = startNumber;
+        for (const auto& oldPath : files) {
+            std::string newFilename = prefix + std::to_string(currentNumber) + oldPath.extension().string();
+            fs::path newPath = oldPath.parent_path() / newFilename;
+
+            try {
+                fs::rename(oldPath, newPath);
+                std::cout << "Renamed: " << oldPath.filename() << " -> " << newFilename << std::endl;
+                ++currentNumber;
+            } catch (const fs::filesystem_error& e) {
+                std::cerr << "Failed to rename " << oldPath.filename() << ": " << e.what() << std::endl;
+                return false;
+            }
+        }
+
+        std::cout << "Successfully renamed " << files.size() << " files." << std::endl;
+        return true;
     }
-}
+};
 
 int main(int argc, char* argv[]) {
-    if (argc != 3) {
-        std::cout << "Usage: " << argv[0] << " <directory_path> <new_prefix>" << std::endl;
+    if (argc < 3) {
+        std::cout << "Usage: " << argv[0] << " <directory> <prefix> [startNumber] [extensionFilter]" << std::endl;
+        std::cout << "Example: " << argv[0] << " ./photos vacation_ 1 .jpg" << std::endl;
         return 1;
     }
-    
-    std::string directoryPath = argv[1];
-    std::string newPrefix = argv[2];
-    
-    if (!fs::exists(directoryPath) || !fs::is_directory(directoryPath)) {
-        std::cerr << "Error: Invalid directory path." << std::endl;
-        return 1;
+
+    std::string directory = argv[1];
+    std::string prefix = argv[2];
+    int startNumber = (argc > 3) ? std::stoi(argv[3]) : 1;
+    std::string extensionFilter = (argc > 4) ? argv[4] : "";
+
+    if (!extensionFilter.empty() && extensionFilter[0] != '.') {
+        extensionFilter = "." + extensionFilter;
     }
-    
-    renameFilesInDirectory(directoryPath, newPrefix);
-    
-    return 0;
+
+    bool success = FileRenamer::renameFilesInDirectory(directory, prefix, startNumber, extensionFilter);
+    return success ? 0 : 1;
 }
