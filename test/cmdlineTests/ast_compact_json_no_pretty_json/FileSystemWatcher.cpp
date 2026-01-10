@@ -1,94 +1,104 @@
 
+#include <sys/inotify.h>
+#include <unistd.h>
 #include <iostream>
-#include <filesystem>
-#include <chrono>
-#include <thread>
-#include <unordered_map>
 #include <string>
-
-namespace fs = std::filesystem;
+#include <vector>
+#include <cstring>
+#include <limits>
 
 class FileSystemWatcher {
+private:
+    int inotifyFd;
+    std::vector<int> watchDescriptors;
+
 public:
-    explicit FileSystemWatcher(const fs::path& directory) 
-        : watch_path(directory), running(false) {
-        if (!fs::exists(watch_path) || !fs::is_directory(watch_path)) {
-            throw std::runtime_error("Invalid directory path provided");
-        }
-        populate_file_map();
-    }
-
-    void start_watching(int interval_seconds = 1) {
-        running = true;
-        std::cout << "Started watching: " << watch_path.string() << std::endl;
-        
-        while (running) {
-            std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
-            check_for_changes();
+    FileSystemWatcher() : inotifyFd(-1) {
+        inotifyFd = inotify_init();
+        if (inotifyFd < 0) {
+            std::cerr << "Failed to initialize inotify" << std::endl;
         }
     }
 
-    void stop_watching() {
-        running = false;
+    ~FileSystemWatcher() {
+        for (int wd : watchDescriptors) {
+            inotify_rm_watch(inotifyFd, wd);
+        }
+        if (inotifyFd >= 0) {
+            close(inotifyFd);
+        }
+    }
+
+    bool addWatch(const std::string& path, uint32_t mask) {
+        if (inotifyFd < 0) return false;
+
+        int wd = inotify_add_watch(inotifyFd, path.c_str(), mask);
+        if (wd < 0) {
+            std::cerr << "Failed to add watch for: " << path << std::endl;
+            return false;
+        }
+
+        watchDescriptors.push_back(wd);
+        std::cout << "Watching: " << path << " (WD: " << wd << ")" << std::endl;
+        return true;
+    }
+
+    void processEvents() {
+        const size_t eventSize = sizeof(inotify_event);
+        const size_t bufferSize = 1024 * (eventSize + 16);
+        char buffer[bufferSize];
+
+        while (true) {
+            ssize_t length = read(inotifyFd, buffer, bufferSize);
+            if (length < 0) {
+                std::cerr << "Error reading inotify events" << std::endl;
+                break;
+            }
+
+            size_t i = 0;
+            while (i < static_cast<size_t>(length)) {
+                inotify_event* event = reinterpret_cast<inotify_event*>(&buffer[i]);
+                if (event->len) {
+                    handleEvent(event);
+                }
+                i += eventSize + event->len;
+            }
+        }
     }
 
 private:
-    fs::path watch_path;
-    bool running;
-    std::unordered_map<std::string, fs::file_time_type> file_timestamps;
+    void handleEvent(const inotify_event* event) {
+        std::string eventTypes;
+        if (event->mask & IN_ACCESS)        eventTypes += "ACCESS ";
+        if (event->mask & IN_MODIFY)        eventTypes += "MODIFY ";
+        if (event->mask & IN_ATTRIB)        eventTypes += "ATTRIB ";
+        if (event->mask & IN_CLOSE_WRITE)   eventTypes += "CLOSE_WRITE ";
+        if (event->mask & IN_CLOSE_NOWRITE) eventTypes += "CLOSE_NOWRITE ";
+        if (event->mask & IN_OPEN)          eventTypes += "OPEN ";
+        if (event->mask & IN_MOVED_FROM)    eventTypes += "MOVED_FROM ";
+        if (event->mask & IN_MOVED_TO)      eventTypes += "MOVED_TO ";
+        if (event->mask & IN_CREATE)        eventTypes += "CREATE ";
+        if (event->mask & IN_DELETE)        eventTypes += "DELETE ";
+        if (event->mask & IN_DELETE_SELF)   eventTypes += "DELETE_SELF ";
+        if (event->mask & IN_MOVE_SELF)     eventTypes += "MOVE_SELF ";
 
-    void populate_file_map() {
-        file_timestamps.clear();
-        for (const auto& entry : fs::recursive_directory_iterator(watch_path)) {
-            if (fs::is_regular_file(entry.path())) {
-                file_timestamps[entry.path().string()] = fs::last_write_time(entry.path());
-            }
+        std::cout << "WD:" << event->wd << " ";
+        std::cout << "Mask:" << event->mask << " ";
+        std::cout << "Events:[" << eventTypes << "] ";
+        if (event->len > 0) {
+            std::cout << "Name:" << event->name;
         }
-    }
-
-    void check_for_changes() {
-        auto current_files = std::unordered_map<std::string, fs::file_time_type>{};
-        
-        for (const auto& entry : fs::recursive_directory_iterator(watch_path)) {
-            if (fs::is_regular_file(entry.path())) {
-                std::string file_path = entry.path().string();
-                auto current_time = fs::last_write_time(entry.path());
-                current_files[file_path] = current_time;
-
-                if (file_timestamps.find(file_path) == file_timestamps.end()) {
-                    std::cout << "[NEW] " << file_path << std::endl;
-                } else if (file_timestamps[file_path] != current_time) {
-                    std::cout << "[MODIFIED] " << file_path << std::endl;
-                }
-            }
-        }
-
-        for (const auto& [old_file, _] : file_timestamps) {
-            if (current_files.find(old_file) == current_files.end()) {
-                std::cout << "[DELETED] " << old_file << std::endl;
-            }
-        }
-
-        file_timestamps = std::move(current_files);
+        std::cout << std::endl;
     }
 };
 
 int main() {
-    try {
-        FileSystemWatcher watcher(".");
-        std::thread watch_thread([&watcher]() {
-            watcher.start_watching(2);
-        });
+    FileSystemWatcher watcher;
 
-        std::cout << "Press Enter to stop watching..." << std::endl;
-        std::cin.get();
-        
-        watcher.stop_watching();
-        watch_thread.join();
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return 1;
-    }
-    
+    watcher.addWatch(".", IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVE);
+    std::cout << "Monitoring current directory. Press Ctrl+C to stop." << std::endl;
+
+    watcher.processEvents();
+
     return 0;
 }
