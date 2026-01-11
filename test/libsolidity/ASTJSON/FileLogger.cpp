@@ -129,3 +129,79 @@ int main() {
     exampleUsage();
     return 0;
 }
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+
+enum class LogLevel {
+    INFO,
+    WARNING,
+    ERROR
+};
+
+class FileLogger {
+public:
+    FileLogger(const std::string& filename) : logFile(filename, std::ios::app) {
+        if (!logFile.is_open()) {
+            std::cerr << "Failed to open log file: " << filename << std::endl;
+        }
+    }
+
+    ~FileLogger() {
+        if (logFile.is_open()) {
+            logFile.close();
+        }
+    }
+
+    void log(LogLevel level, const std::string& message) {
+        if (!logFile.is_open()) return;
+
+        auto now = std::chrono::system_clock::now();
+        std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+        std::tm local_tm = *std::localtime(&now_time);
+
+        logFile << "[" << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S") << "] ";
+
+        switch (level) {
+            case LogLevel::INFO:
+                logFile << "[INFO] ";
+                break;
+            case LogLevel::WARNING:
+                logFile << "[WARNING] ";
+                break;
+            case LogLevel::ERROR:
+                logFile << "[ERROR] ";
+                break;
+        }
+
+        logFile << message << std::endl;
+    }
+
+    void info(const std::string& message) {
+        log(LogLevel::INFO, message);
+    }
+
+    void warning(const std::string& message) {
+        log(LogLevel::WARNING, message);
+    }
+
+    void error(const std::string& message) {
+        log(LogLevel::ERROR, message);
+    }
+
+private:
+    std::ofstream logFile;
+};
+
+int main() {
+    FileLogger logger("application.log");
+
+    logger.info("Application started successfully.");
+    logger.warning("Disk space is running low.");
+    logger.error("Failed to connect to database.");
+
+    return 0;
+}
