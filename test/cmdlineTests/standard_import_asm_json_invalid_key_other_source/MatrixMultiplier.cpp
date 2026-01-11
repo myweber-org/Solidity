@@ -1,55 +1,139 @@
+
 #include <iostream>
 #include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <omp.h>
 
-std::vector<std::vector<int>> multiplyMatrices(const std::vector<std::vector<int>>& matA, const std::vector<std::vector<int>>& matB) {
-    int rowsA = matA.size();
-    int colsA = matA[0].size();
-    int colsB = matB[0].size();
+class ParallelMatrixMultiplier {
+private:
+    std::vector<std::vector<double>> matrixA;
+    std::vector<std::vector<double>> matrixB;
+    std::vector<std::vector<double>> result;
+    size_t rowsA, colsA, rowsB, colsB;
 
-    std::vector<std::vector<int>> result(rowsA, std::vector<int>(colsB, 0));
-
-    for (int i = 0; i < rowsA; ++i) {
-        for (int j = 0; j < colsB; ++j) {
-            for (int k = 0; k < colsA; ++k) {
-                result[i][j] += matA[i][k] * matB[k][j];
+    void initializeRandomMatrix(std::vector<std::vector<double>>& matrix, size_t rows, size_t cols) {
+        matrix.resize(rows, std::vector<double>(cols));
+        for (size_t i = 0; i < rows; ++i) {
+            for (size_t j = 0; j < cols; ++j) {
+                matrix[i][j] = static_cast<double>(rand()) / RAND_MAX * 100.0;
             }
         }
     }
-    return result;
-}
 
-void printMatrix(const std::vector<std::vector<int>>& matrix) {
-    for (const auto& row : matrix) {
-        for (int val : row) {
-            std::cout << val << " ";
+public:
+    ParallelMatrixMultiplier(size_t rA, size_t cA, size_t rB, size_t cB) 
+        : rowsA(rA), colsA(cA), rowsB(rB), colsB(cB) {
+        if (colsA != rowsB) {
+            throw std::invalid_argument("Matrix dimensions incompatible for multiplication");
         }
-        std::cout << std::endl;
+        
+        srand(static_cast<unsigned>(time(nullptr)));
+        initializeRandomMatrix(matrixA, rowsA, colsA);
+        initializeRandomMatrix(matrixB, rowsB, colsB);
+        result.resize(rowsA, std::vector<double>(colsB, 0.0));
     }
-}
+
+    void multiplySequential() {
+        for (size_t i = 0; i < rowsA; ++i) {
+            for (size_t j = 0; j < colsB; ++j) {
+                double sum = 0.0;
+                for (size_t k = 0; k < colsA; ++k) {
+                    sum += matrixA[i][k] * matrixB[k][j];
+                }
+                result[i][j] = sum;
+            }
+        }
+    }
+
+    void multiplyParallel() {
+        #pragma omp parallel for collapse(2) schedule(dynamic)
+        for (size_t i = 0; i < rowsA; ++i) {
+            for (size_t j = 0; j < colsB; ++j) {
+                double sum = 0.0;
+                for (size_t k = 0; k < colsA; ++k) {
+                    sum += matrixA[i][k] * matrixB[k][j];
+                }
+                result[i][j] = sum;
+            }
+        }
+    }
+
+    void verifyMultiplication() {
+        std::vector<std::vector<double>> sequentialResult(rowsA, std::vector<double>(colsB, 0.0));
+        
+        for (size_t i = 0; i < rowsA; ++i) {
+            for (size_t j = 0; j < colsB; ++j) {
+                double sum = 0.0;
+                for (size_t k = 0; k < colsA; ++k) {
+                    sum += matrixA[i][k] * matrixB[k][j];
+                }
+                sequentialResult[i][j] = sum;
+            }
+        }
+
+        double tolerance = 1e-9;
+        for (size_t i = 0; i < rowsA; ++i) {
+            for (size_t j = 0; j < colsB; ++j) {
+                if (std::abs(result[i][j] - sequentialResult[i][j]) > tolerance) {
+                    std::cerr << "Verification failed at position (" << i << "," << j << ")" << std::endl;
+                    return;
+                }
+            }
+        }
+        std::cout << "Matrix multiplication verified successfully" << std::endl;
+    }
+
+    void benchmarkPerformance() {
+        double startTime, endTime;
+        
+        startTime = omp_get_wtime();
+        multiplySequential();
+        endTime = omp_get_wtime();
+        std::cout << "Sequential execution time: " << (endTime - startTime) * 1000 << " ms" << std::endl;
+
+        startTime = omp_get_wtime();
+        multiplyParallel();
+        endTime = omp_get_wtime();
+        std::cout << "Parallel execution time: " << (endTime - startTime) * 1000 << " ms" << std::endl;
+    }
+
+    void displayMatrix(const std::vector<std::vector<double>>& matrix, size_t maxRows = 5, size_t maxCols = 5) {
+        size_t displayRows = std::min(maxRows, matrix.size());
+        size_t displayCols = (matrix.empty()) ? 0 : std::min(maxCols, matrix[0].size());
+        
+        std::cout << "Matrix preview (first " << displayRows << "x" << displayCols << " elements):" << std::endl;
+        for (size_t i = 0; i < displayRows; ++i) {
+            for (size_t j = 0; j < displayCols; ++j) {
+                std::cout << matrix[i][j] << "\t";
+            }
+            std::cout << std::endl;
+        }
+    }
+};
 
 int main() {
-    std::vector<std::vector<int>> matrixA = {
-        {1, 2, 3},
-        {4, 5, 6},
-        {7, 8, 9}
-    };
+    try {
+        const size_t ROWS_A = 500;
+        const size_t COLS_A = 500;
+        const size_t ROWS_B = 500;
+        const size_t COLS_B = 500;
 
-    std::vector<std::vector<int>> matrixB = {
-        {9, 8, 7},
-        {6, 5, 4},
-        {3, 2, 1}
-    };
+        std::cout << "Initializing matrices of size " 
+                  << ROWS_A << "x" << COLS_A << " and " 
+                  << ROWS_B << "x" << COLS_B << std::endl;
 
-    std::vector<std::vector<int>> product = multiplyMatrices(matrixA, matrixB);
+        ParallelMatrixMultiplier multiplier(ROWS_A, COLS_A, ROWS_B, COLS_B);
+        
+        std::cout << "\nPerformance Benchmark:" << std::endl;
+        multiplier.benchmarkPerformance();
+        
+        std::cout << "\nVerifying parallel multiplication:" << std::endl;
+        multiplier.verifyMultiplication();
 
-    std::cout << "Matrix A:" << std::endl;
-    printMatrix(matrixA);
-
-    std::cout << "\nMatrix B:" << std::endl;
-    printMatrix(matrixB);
-
-    std::cout << "\nProduct of A and B:" << std::endl;
-    printMatrix(product);
-
-    return 0;
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
 }
