@@ -83,3 +83,94 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+#include <iostream>
+#include <string>
+#include <chrono>
+#include <thread>
+#include <boost/asio.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/bind/bind.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
+
+namespace fs = boost::filesystem;
+namespace asio = boost::asio;
+
+class FileSystemWatcher {
+public:
+    FileSystemWatcher(asio::io_service& io_service, const std::string& path)
+        : timer_(io_service), watch_path_(path), last_check_(fs::last_write_time(path)) {
+        start_watching();
+    }
+
+    void start_watching() {
+        timer_.expires_from_now(boost::posix_time::seconds(1));
+        timer_.async_wait(boost::bind(&FileSystemWatcher::check_file, this,
+                                      asio::placeholders::error));
+    }
+
+    void check_file(const boost::system::error_code& /*e*/) {
+        try {
+            if (fs::exists(watch_path_)) {
+                std::time_t current_time = fs::last_write_time(watch_path_);
+                if (current_time != last_check_) {
+                    last_check_ = current_time;
+                    std::cout << "File modified: " << watch_path_ << std::endl;
+                    on_file_modified();
+                }
+            } else {
+                std::cout << "File deleted: " << watch_path_ << std::endl;
+                on_file_deleted();
+                return;
+            }
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Filesystem error: " << e.what() << std::endl;
+        }
+
+        start_watching();
+    }
+
+    virtual void on_file_modified() {
+        std::cout << "Default modification handler." << std::endl;
+    }
+
+    virtual void on_file_deleted() {
+        std::cout << "Default deletion handler." << std::endl;
+    }
+
+private:
+    asio::deadline_timer timer_;
+    std::string watch_path_;
+    std::time_t last_check_;
+};
+
+class CustomWatcher : public FileSystemWatcher {
+public:
+    CustomWatcher(asio::io_service& io_service, const std::string& path)
+        : FileSystemWatcher(io_service, path) {}
+
+    void on_file_modified() override {
+        std::cout << "Custom handler: File has been updated, triggering rebuild..." << std::endl;
+    }
+
+    void on_file_deleted() override {
+        std::cout << "Custom handler: Watched file removed, stopping monitor." << std::endl;
+    }
+};
+
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <file_path>" << std::endl;
+        return 1;
+    }
+
+    try {
+        asio::io_service io_service;
+        CustomWatcher watcher(io_service, argv[1]);
+        io_service.run();
+    } catch (const std::exception& e) {
+        std::cerr << "Exception: " << e.what() << std::endl;
+        return 1;
+    }
+
+    return 0;
+}
