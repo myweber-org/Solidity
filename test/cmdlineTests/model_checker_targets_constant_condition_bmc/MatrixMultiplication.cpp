@@ -1,0 +1,58 @@
+
+#include <iostream>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <omp.h>
+
+using namespace std;
+
+vector<vector<double>> generate_random_matrix(int rows, int cols) {
+    vector<vector<double>> matrix(rows, vector<double>(cols));
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX;
+        }
+    }
+    return matrix;
+}
+
+vector<vector<double>> multiply_matrices_parallel(const vector<vector<double>>& A,
+                                                  const vector<vector<double>>& B) {
+    int m = A.size();
+    int n = A[0].size();
+    int p = B[0].size();
+    
+    vector<vector<double>> C(m, vector<double>(p, 0.0));
+    
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < m; ++i) {
+        for (int j = 0; j < p; ++j) {
+            double sum = 0.0;
+            for (int k = 0; k < n; ++k) {
+                sum += A[i][k] * B[k][j];
+            }
+            C[i][j] = sum;
+        }
+    }
+    
+    return C;
+}
+
+int main() {
+    srand(static_cast<unsigned>(time(nullptr)));
+    
+    const int SIZE = 500;
+    
+    auto matrix_A = generate_random_matrix(SIZE, SIZE);
+    auto matrix_B = generate_random_matrix(SIZE, SIZE);
+    
+    double start_time = omp_get_wtime();
+    auto result = multiply_matrices_parallel(matrix_A, matrix_B);
+    double end_time = omp_get_wtime();
+    
+    cout << "Matrix multiplication completed for " << SIZE << "x" << SIZE << " matrices." << endl;
+    cout << "Execution time: " << (end_time - start_time) << " seconds" << endl;
+    
+    return 0;
+}
