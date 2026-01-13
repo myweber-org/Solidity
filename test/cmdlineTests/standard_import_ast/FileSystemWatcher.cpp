@@ -1,90 +1,110 @@
 #include <iostream>
-#include <sys/inotify.h>
-#include <unistd.h>
-#include <cstring>
-#include <limits.h>
+#include <filesystem>
+#include <chrono>
+#include <thread>
+#include <unordered_map>
+#include <functional>
+#include <atomic>
+#include <mutex>
+
+namespace fs = std::filesystem;
 
 class FileSystemWatcher {
-private:
-    int inotifyFd;
-    int watchDescriptor;
-    static constexpr size_t EVENT_SIZE = sizeof(struct inotify_event);
-    static constexpr size_t BUF_LEN = 1024 * (EVENT_SIZE + NAME_MAX + 1);
-
 public:
-    FileSystemWatcher() : inotifyFd(-1), watchDescriptor(-1) {
-        inotifyFd = inotify_init();
-        if (inotifyFd < 0) {
-            std::cerr << "Error initializing inotify" << std::endl;
+    using Callback = std::function<void(const fs::path&, const std::string&)>;
+
+    FileSystemWatcher() : running_(false) {}
+
+    void addWatchPath(const fs::path& path, Callback callback) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (fs::exists(path) && fs::is_directory(path)) {
+            watch_paths_[path] = {callback, getCurrentSnapshot(path)};
         }
     }
 
-    bool addWatch(const std::string& path) {
-        if (inotifyFd < 0) return false;
-        
-        watchDescriptor = inotify_add_watch(inotifyFd, path.c_str(), 
-                                           IN_MODIFY | IN_CREATE | IN_DELETE);
-        if (watchDescriptor < 0) {
-            std::cerr << "Error adding watch for: " << path << std::endl;
-            return false;
-        }
-        return true;
+    void start() {
+        running_ = true;
+        monitor_thread_ = std::thread(&FileSystemWatcher::monitor, this);
     }
 
-    void startMonitoring() {
-        if (inotifyFd < 0 || watchDescriptor < 0) {
-            std::cerr << "Watcher not properly initialized" << std::endl;
-            return;
-        }
-
-        char buffer[BUF_LEN];
-        std::cout << "Monitoring file system changes..." << std::endl;
-        
-        while (true) {
-            ssize_t length = read(inotifyFd, buffer, BUF_LEN);
-            if (length < 0) {
-                std::cerr << "Error reading inotify events" << std::endl;
-                break;
-            }
-
-            for (char* ptr = buffer; ptr < buffer + length; ) {
-                struct inotify_event* event = reinterpret_cast<struct inotify_event*>(ptr);
-                
-                if (event->mask & IN_CREATE) {
-                    std::cout << "File created: " << event->name << std::endl;
-                }
-                if (event->mask & IN_MODIFY) {
-                    std::cout << "File modified: " << event->name << std::endl;
-                }
-                if (event->mask & IN_DELETE) {
-                    std::cout << "File deleted: " << event->name << std::endl;
-                }
-                
-                ptr += EVENT_SIZE + event->len;
-            }
+    void stop() {
+        running_ = false;
+        if (monitor_thread_.joinable()) {
+            monitor_thread_.join();
         }
     }
 
     ~FileSystemWatcher() {
-        if (watchDescriptor >= 0) {
-            inotify_rm_watch(inotifyFd, watchDescriptor);
+        stop();
+    }
+
+private:
+    struct WatchInfo {
+        Callback callback;
+        std::unordered_map<std::string, fs::file_time_type> snapshot;
+    };
+
+    std::atomic<bool> running_;
+    std::thread monitor_thread_;
+    std::mutex mutex_;
+    std::unordered_map<fs::path, WatchInfo> watch_paths_;
+
+    std::unordered_map<std::string, fs::file_time_type> getCurrentSnapshot(const fs::path& path) {
+        std::unordered_map<std::string, fs::file_time_type> snapshot;
+        for (const auto& entry : fs::recursive_directory_iterator(path)) {
+            if (fs::is_regular_file(entry.status())) {
+                snapshot[entry.path().string()] = fs::last_write_time(entry);
+            }
         }
-        if (inotifyFd >= 0) {
-            close(inotifyFd);
+        return snapshot;
+    }
+
+    void monitor() {
+        while (running_) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            
+            std::lock_guard<std::mutex> lock(mutex_);
+            for (auto& [path, info] : watch_paths_) {
+                auto current_snapshot = getCurrentSnapshot(path);
+                
+                for (const auto& [file_path, current_time] : current_snapshot) {
+                    auto it = info.snapshot.find(file_path);
+                    if (it == info.snapshot.end()) {
+                        info.callback(file_path, "CREATED");
+                    } else if (it->second != current_time) {
+                        info.callback(file_path, "MODIFIED");
+                    }
+                }
+
+                for (const auto& [file_path, old_time] : info.snapshot) {
+                    if (current_snapshot.find(file_path) == current_snapshot.end()) {
+                        info.callback(file_path, "DELETED");
+                    }
+                }
+
+                info.snapshot = std::move(current_snapshot);
+            }
         }
     }
 };
 
-int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        std::cout << "Usage: " << argv[0] << " <directory_path>" << std::endl;
-        return 1;
-    }
+void exampleCallback(const fs::path& path, const std::string& action) {
+    std::cout << "File: " << path << " Action: " << action << std::endl;
+}
 
+int main() {
     FileSystemWatcher watcher;
-    if (watcher.addWatch(argv[1])) {
-        watcher.startMonitoring();
-    }
-
+    
+    watcher.addWatchPath("./watch_directory", exampleCallback);
+    
+    std::cout << "Starting file system watcher. Monitoring ./watch_directory" << std::endl;
+    std::cout << "Press Enter to stop..." << std::endl;
+    
+    watcher.start();
+    
+    std::cin.get();
+    
+    watcher.stop();
+    
     return 0;
 }
