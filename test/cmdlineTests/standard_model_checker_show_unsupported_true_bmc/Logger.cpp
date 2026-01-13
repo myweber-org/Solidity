@@ -2,9 +2,9 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include <sstream>
-#include <ctime>
-#include <memory>
+#include <chrono>
+#include <iomanip>
+#include <mutex>
 
 enum class LogLevel {
     DEBUG,
@@ -14,47 +14,76 @@ enum class LogLevel {
 };
 
 class Logger {
-public:
-    Logger(const std::string& name, LogLevel minLevel = LogLevel::INFO)
-        : name_(name), minLevel_(minLevel), outputStream_(&std::clog) {}
+private:
+    std::ofstream logFile;
+    LogLevel currentLevel;
+    std::mutex logMutex;
+    bool outputToConsole;
 
-    void setMinLevel(LogLevel level) { minLevel_ = level; }
-    void setOutputStream(std::ostream& stream) { outputStream_ = &stream; }
-    void setLogFile(const std::string& filename) {
-        fileStream_ = std::make_unique<std::ofstream>(filename, std::ios::app);
-        if (fileStream_->is_open()) {
-            outputStream_ = fileStream_.get();
+    std::string getCurrentTime() {
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        std::stringstream ss;
+        ss << std::put_time(std::localtime(&time), "%Y-%m-%d %H:%M:%S");
+        return ss.str();
+    }
+
+    std::string levelToString(LogLevel level) {
+        switch(level) {
+            case LogLevel::DEBUG: return "DEBUG";
+            case LogLevel::INFO: return "INFO";
+            case LogLevel::WARNING: return "WARNING";
+            case LogLevel::ERROR: return "ERROR";
+            default: return "UNKNOWN";
         }
+    }
+
+public:
+    Logger(const std::string& filename = "", LogLevel level = LogLevel::INFO, bool console = true)
+        : currentLevel(level), outputToConsole(console) {
+        if (!filename.empty()) {
+            logFile.open(filename, std::ios::app);
+        }
+    }
+
+    ~Logger() {
+        if (logFile.is_open()) {
+            logFile.close();
+        }
+    }
+
+    void setLogLevel(LogLevel level) {
+        currentLevel = level;
     }
 
     void log(LogLevel level, const std::string& message) {
-        if (level < minLevel_) return;
+        if (level < currentLevel) return;
 
-        std::string levelStr;
-        switch (level) {
-            case LogLevel::DEBUG:   levelStr = "DEBUG"; break;
-            case LogLevel::INFO:    levelStr = "INFO"; break;
-            case LogLevel::WARNING: levelStr = "WARN"; break;
-            case LogLevel::ERROR:   levelStr = "ERROR"; break;
+        std::lock_guard<std::mutex> lock(logMutex);
+        std::string logEntry = "[" + getCurrentTime() + "] [" + levelToString(level) + "] " + message;
+
+        if (outputToConsole) {
+            std::cout << logEntry << std::endl;
         }
 
-        std::time_t now = std::time(nullptr);
-        char timeBuf[100];
-        std::strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S", std::localtime(&now));
-
-        std::ostringstream oss;
-        oss << "[" << timeBuf << "] [" << levelStr << "] " << name_ << ": " << message;
-        *outputStream_ << oss.str() << std::endl;
+        if (logFile.is_open()) {
+            logFile << logEntry << std::endl;
+        }
     }
 
-    void debug(const std::string& message) { log(LogLevel::DEBUG, message); }
-    void info(const std::string& message) { log(LogLevel::INFO, message); }
-    void warning(const std::string& message) { log(LogLevel::WARNING, message); }
-    void error(const std::string& message) { log(LogLevel::ERROR, message); }
+    void debug(const std::string& message) {
+        log(LogLevel::DEBUG, message);
+    }
 
-private:
-    std::string name_;
-    LogLevel minLevel_;
-    std::ostream* outputStream_;
-    std::unique_ptr<std::ofstream> fileStream_;
+    void info(const std::string& message) {
+        log(LogLevel::INFO, message);
+    }
+
+    void warning(const std::string& message) {
+        log(LogLevel::WARNING, message);
+    }
+
+    void error(const std::string& message) {
+        log(LogLevel::ERROR, message);
+    }
 };
