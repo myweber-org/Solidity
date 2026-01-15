@@ -61,26 +61,58 @@ std::vector<std::vector<double>> multiplyMatricesSequential(
     return result;
 }
 
+bool verifyResults(const std::vector<std::vector<double>>& mat1,
+                   const std::vector<std::vector<double>>& mat2,
+                   double tolerance = 1e-6) {
+    
+    if (mat1.size() != mat2.size() || mat1[0].size() != mat2[0].size()) {
+        return false;
+    }
+    
+    for (size_t i = 0; i < mat1.size(); ++i) {
+        for (size_t j = 0; j < mat1[0].size(); ++j) {
+            if (std::abs(mat1[i][j] - mat2[i][j]) > tolerance) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 int main() {
     const int N = 500;
+    const int M = 500;
+    const int P = 500;
+    
     srand(42);
     
-    auto matrixA = generateRandomMatrix(N, N);
-    auto matrixB = generateRandomMatrix(N, N);
+    std::cout << "Generating random matrices of size " << N << "x" << M << " and " << M << "x" << P << std::endl;
+    auto A = generateRandomMatrix(N, M);
+    auto B = generateRandomMatrix(M, P);
     
+    std::cout << "Performing sequential matrix multiplication..." << std::endl;
     auto start = std::chrono::high_resolution_clock::now();
-    auto resultSeq = multiplyMatricesSequential(matrixA, matrixB);
+    auto resultSeq = multiplyMatricesSequential(A, B);
     auto end = std::chrono::high_resolution_clock::now();
     auto durationSeq = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     
+    std::cout << "Performing parallel matrix multiplication..." << std::endl;
     start = std::chrono::high_resolution_clock::now();
-    auto resultPar = multiplyMatricesParallel(matrixA, matrixB);
+    auto resultPar = multiplyMatricesParallel(A, B);
     end = std::chrono::high_resolution_clock::now();
     auto durationPar = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     
-    std::cout << "Sequential multiplication time: " << durationSeq.count() << " ms" << std::endl;
-    std::cout << "Parallel multiplication time: " << durationPar.count() << " ms" << std::endl;
+    std::cout << "\nPerformance Results:" << std::endl;
+    std::cout << "Sequential time: " << durationSeq.count() << " ms" << std::endl;
+    std::cout << "Parallel time: " << durationPar.count() << " ms" << std::endl;
     std::cout << "Speedup: " << static_cast<double>(durationSeq.count()) / durationPar.count() << "x" << std::endl;
+    
+    std::cout << "\nVerifying results..." << std::endl;
+    if (verifyResults(resultSeq, resultPar)) {
+        std::cout << "Results match! Parallel implementation is correct." << std::endl;
+    } else {
+        std::cout << "ERROR: Results do not match!" << std::endl;
+    }
     
     return 0;
 }
