@@ -88,3 +88,84 @@ int main() {
     
     return 0;
 }
+#include <iostream>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+
+class Matrix {
+private:
+    int rows;
+    int cols;
+    std::vector<std::vector<double>> data;
+
+public:
+    Matrix(int r, int c) : rows(r), cols(c), data(r, std::vector<double>(c, 0.0)) {}
+
+    void randomize() {
+        std::srand(static_cast<unsigned int>(std::time(nullptr)));
+        for (int i = 0; i < rows; ++i) {
+            for (int j = 0; j < cols; ++j) {
+                data[i][j] = static_cast<double>(std::rand()) / RAND_MAX * 10.0;
+            }
+        }
+    }
+
+    void display() const {
+        for (int i = 0; i < rows; ++i) {
+            for (int j = 0; j < cols; ++j) {
+                std::cout << data[i][j] << " ";
+            }
+            std::cout << std::endl;
+        }
+    }
+
+    Matrix multiply(const Matrix& other) const {
+        if (cols != other.rows) {
+            throw std::invalid_argument("Matrix dimensions do not match for multiplication.");
+        }
+
+        Matrix result(rows, other.cols);
+        for (int i = 0; i < rows; ++i) {
+            for (int j = 0; j < other.cols; ++j) {
+                double sum = 0.0;
+                for (int k = 0; k < cols; ++k) {
+                    sum += data[i][k] * other.data[k][j];
+                }
+                result.data[i][j] = sum;
+            }
+        }
+        return result;
+    }
+
+    int getRows() const { return rows; }
+    int getCols() const { return cols; }
+};
+
+int main() {
+    try {
+        Matrix matA(3, 4);
+        Matrix matB(4, 2);
+
+        matA.randomize();
+        matB.randomize();
+
+        std::cout << "Matrix A (" << matA.getRows() << "x" << matA.getCols() << "):" << std::endl;
+        matA.display();
+        std::cout << std::endl;
+
+        std::cout << "Matrix B (" << matB.getRows() << "x" << matB.getCols() << "):" << std::endl;
+        matB.display();
+        std::cout << std::endl;
+
+        Matrix matC = matA.multiply(matB);
+        std::cout << "Result Matrix C (" << matC.getRows() << "x" << matC.getCols() << "):" << std::endl;
+        matC.display();
+
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+
+    return 0;
+}
