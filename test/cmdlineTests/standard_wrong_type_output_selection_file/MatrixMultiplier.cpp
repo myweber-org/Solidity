@@ -134,4 +134,61 @@ int main() {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
+}#include <iostream>
+#include <vector>
+
+class MatrixMultiplier {
+public:
+    static std::vector<std::vector<int>> multiply(const std::vector<std::vector<int>>& A,
+                                                  const std::vector<std::vector<int>>& B) {
+        int rowsA = A.size();
+        int colsA = A[0].size();
+        int colsB = B[0].size();
+
+        std::vector<std::vector<int>> result(rowsA, std::vector<int>(colsB, 0));
+
+        for (int i = 0; i < rowsA; ++i) {
+            for (int j = 0; j < colsB; ++j) {
+                for (int k = 0; k < colsA; ++k) {
+                    result[i][j] += A[i][k] * B[k][j];
+                }
+            }
+        }
+        return result;
+    }
+
+    static void printMatrix(const std::vector<std::vector<int>>& matrix) {
+        for (const auto& row : matrix) {
+            for (int val : row) {
+                std::cout << val << " ";
+            }
+            std::cout << std::endl;
+        }
+    }
+};
+
+int main() {
+    std::vector<std::vector<int>> matrixA = {
+        {1, 2, 3},
+        {4, 5, 6},
+        {7, 8, 9}
+    };
+
+    std::vector<std::vector<int>> matrixB = {
+        {9, 8, 7},
+        {6, 5, 4},
+        {3, 2, 1}
+    };
+
+    std::cout << "Matrix A:" << std::endl;
+    MatrixMultiplier::printMatrix(matrixA);
+    std::cout << "\nMatrix B:" << std::endl;
+    MatrixMultiplier::printMatrix(matrixB);
+
+    std::vector<std::vector<int>> result = MatrixMultiplier::multiply(matrixA, matrixB);
+
+    std::cout << "\nResult of A * B:" << std::endl;
+    MatrixMultiplier::printMatrix(result);
+
+    return 0;
 }
