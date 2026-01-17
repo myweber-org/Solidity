@@ -1,7 +1,8 @@
+
 #include <iostream>
 #include <fstream>
-#include <sstream>
 #include <iomanip>
+#include <sstream>
 #include <vector>
 #include <openssl/sha.h>
 
@@ -30,19 +31,10 @@ std::string calculateSHA256(const std::string& filepath) {
     return ss.str();
 }
 
-bool verifyFileHash(const std::string& filepath, const std::string& expectedHash) {
+bool verifyFileIntegrity(const std::string& filepath, const std::string& expectedHash) {
     try {
-        std::string actualHash = calculateSHA256(filepath);
-        std::cout << "Calculated hash: " << actualHash << std::endl;
-        std::cout << "Expected hash:   " << expectedHash << std::endl;
-        
-        if (actualHash == expectedHash) {
-            std::cout << "Verification PASSED" << std::endl;
-            return true;
-        } else {
-            std::cout << "Verification FAILED" << std::endl;
-            return false;
-        }
+        std::string computedHash = calculateSHA256(filepath);
+        return computedHash == expectedHash;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return false;
@@ -58,6 +50,11 @@ int main(int argc, char* argv[]) {
     std::string filepath = argv[1];
     std::string expectedHash = argv[2];
 
-    bool isValid = verifyFileHash(filepath, expectedHash);
-    return isValid ? 0 : 1;
+    if (verifyFileIntegrity(filepath, expectedHash)) {
+        std::cout << "File integrity verified. SHA-256 matches." << std::endl;
+        return 0;
+    } else {
+        std::cout << "File integrity check failed. SHA-256 does not match." << std::endl;
+        return 1;
+    }
 }
