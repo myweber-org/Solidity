@@ -111,3 +111,59 @@ int main() {
     
     return 0;
 }
+#include <iostream>
+#include <vector>
+#include <random>
+#include <chrono>
+#include <omp.h>
+
+void initializeMatrix(std::vector<std::vector<double>>& matrix, int size) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(0.0, 1.0);
+
+    for (int i = 0; i < size; ++i) {
+        for (int j = 0; j < size; ++j) {
+            matrix[i][j] = dis(gen);
+        }
+    }
+}
+
+void multiplyMatrices(const std::vector<std::vector<double>>& A,
+                      const std::vector<std::vector<double>>& B,
+                      std::vector<std::vector<double>>& C,
+                      int size) {
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < size; ++i) {
+        for (int j = 0; j < size; ++j) {
+            double sum = 0.0;
+            for (int k = 0; k < size; ++k) {
+                sum += A[i][k] * B[k][j];
+            }
+            C[i][j] = sum;
+        }
+    }
+}
+
+int main() {
+    const int MATRIX_SIZE = 500;
+    
+    std::vector<std::vector<double>> A(MATRIX_SIZE, std::vector<double>(MATRIX_SIZE));
+    std::vector<std::vector<double>> B(MATRIX_SIZE, std::vector<double>(MATRIX_SIZE));
+    std::vector<std::vector<double>> C(MATRIX_SIZE, std::vector<double>(MATRIX_SIZE));
+
+    initializeMatrix(A, MATRIX_SIZE);
+    initializeMatrix(B, MATRIX_SIZE);
+
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    multiplyMatrices(A, B, C, MATRIX_SIZE);
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    std::cout << "Matrix multiplication completed for size " << MATRIX_SIZE << std::endl;
+    std::cout << "Execution time: " << duration.count() << " ms" << std::endl;
+
+    return 0;
+}
