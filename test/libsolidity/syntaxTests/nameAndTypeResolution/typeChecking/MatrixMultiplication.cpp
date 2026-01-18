@@ -114,3 +114,94 @@ int main() {
     
     return 0;
 }
+#include <iostream>
+#include <vector>
+#include <chrono>
+#include <cstdlib>
+#include <omp.h>
+
+void initializeMatrix(std::vector<std::vector<double>>& matrix, int size) {
+    for (int i = 0; i < size; ++i) {
+        matrix[i].resize(size);
+        for (int j = 0; j < size; ++j) {
+            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX;
+        }
+    }
+}
+
+void multiplyMatricesParallel(const std::vector<std::vector<double>>& A,
+                              const std::vector<std::vector<double>>& B,
+                              std::vector<std::vector<double>>& C,
+                              int size) {
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < size; ++i) {
+        for (int j = 0; j < size; ++j) {
+            double sum = 0.0;
+            for (int k = 0; k < size; ++k) {
+                sum += A[i][k] * B[k][j];
+            }
+            C[i][j] = sum;
+        }
+    }
+}
+
+void multiplyMatricesSequential(const std::vector<std::vector<double>>& A,
+                                const std::vector<std::vector<double>>& B,
+                                std::vector<std::vector<double>>& C,
+                                int size) {
+    for (int i = 0; i < size; ++i) {
+        for (int j = 0; j < size; ++j) {
+            double sum = 0.0;
+            for (int k = 0; k < size; ++k) {
+                sum += A[i][k] * B[k][j];
+            }
+            C[i][j] = sum;
+        }
+    }
+}
+
+int main() {
+    const int MATRIX_SIZE = 500;
+    const int NUM_THREADS = 4;
+
+    omp_set_num_threads(NUM_THREADS);
+
+    std::vector<std::vector<double>> A(MATRIX_SIZE);
+    std::vector<std::vector<double>> B(MATRIX_SIZE);
+    std::vector<std::vector<double>> C_parallel(MATRIX_SIZE, std::vector<double>(MATRIX_SIZE, 0.0));
+    std::vector<std::vector<double>> C_sequential(MATRIX_SIZE, std::vector<double>(MATRIX_SIZE, 0.0));
+
+    srand(42);
+    initializeMatrix(A, MATRIX_SIZE);
+    initializeMatrix(B, MATRIX_SIZE);
+
+    auto start = std::chrono::high_resolution_clock::now();
+    multiplyMatricesParallel(A, B, C_parallel, MATRIX_SIZE);
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> parallel_duration = end - start;
+
+    start = std::chrono::high_resolution_clock::now();
+    multiplyMatricesSequential(A, B, C_sequential, MATRIX_SIZE);
+    end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> sequential_duration = end - start;
+
+    bool resultsMatch = true;
+    const double TOLERANCE = 1e-9;
+    for (int i = 0; i < MATRIX_SIZE && resultsMatch; ++i) {
+        for (int j = 0; j < MATRIX_SIZE; ++j) {
+            if (std::abs(C_parallel[i][j] - C_sequential[i][j]) > TOLERANCE) {
+                resultsMatch = false;
+                break;
+            }
+        }
+    }
+
+    std::cout << "Matrix size: " << MATRIX_SIZE << "x" << MATRIX_SIZE << std::endl;
+    std::cout << "Number of threads: " << NUM_THREADS << std::endl;
+    std::cout << "Parallel execution time: " << parallel_duration.count() << " seconds" << std::endl;
+    std::cout << "Sequential execution time: " << sequential_duration.count() << " seconds" << std::endl;
+    std::cout << "Speedup factor: " << sequential_duration.count() / parallel_duration.count() << std::endl;
+    std::cout << "Results match: " << (resultsMatch ? "Yes" : "No") << std::endl;
+
+    return 0;
+}
