@@ -81,3 +81,99 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+#include <iostream>
+#include <filesystem>
+#include <thread>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <unordered_set>
+#include <atomic>
+
+namespace fs = std::filesystem;
+
+class FileSystemWatcher {
+public:
+    FileSystemWatcher(const fs::path& path) : watch_path(path), running(false) {}
+
+    void start() {
+        if (running) return;
+        running = true;
+        watcher_thread = std::thread(&FileSystemWatcher::watch_loop, this);
+    }
+
+    void stop() {
+        running = false;
+        cv.notify_all();
+        if (watcher_thread.joinable()) {
+            watcher_thread.join();
+        }
+    }
+
+    ~FileSystemWatcher() {
+        stop();
+    }
+
+private:
+    void watch_loop() {
+        std::unordered_set<std::string> previous_files;
+
+        for (const auto& entry : fs::directory_iterator(watch_path)) {
+            if (entry.is_regular_file()) {
+                previous_files.insert(entry.path().filename().string());
+            }
+        }
+
+        while (running) {
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+
+            std::unordered_set<std::string> current_files;
+            for (const auto& entry : fs::directory_iterator(watch_path)) {
+                if (entry.is_regular_file()) {
+                    current_files.insert(entry.path().filename().string());
+                }
+            }
+
+            for (const auto& file : current_files) {
+                if (previous_files.find(file) == previous_files.end()) {
+                    std::lock_guard<std::mutex> lock(console_mutex);
+                    std::cout << "New file detected: " << file << std::endl;
+                }
+            }
+
+            for (const auto& file : previous_files) {
+                if (current_files.find(file) == current_files.end()) {
+                    std::lock_guard<std::mutex> lock(console_mutex);
+                    std::cout << "File removed: " << file << std::endl;
+                }
+            }
+
+            previous_files = std::move(current_files);
+
+            std::unique_lock<std::mutex> lock(mtx);
+            cv.wait_for(lock, std::chrono::milliseconds(100), [this]() { return !running; });
+        }
+    }
+
+    fs::path watch_path;
+    std::thread watcher_thread;
+    std::atomic<bool> running;
+    std::mutex mtx;
+    std::condition_variable cv;
+    std::mutex console_mutex;
+};
+
+int main() {
+    fs::path current_path = fs::current_path();
+    FileSystemWatcher watcher(current_path);
+
+    std::cout << "Watching directory: " << current_path << std::endl;
+    std::cout << "Press Enter to stop watching..." << std::endl;
+
+    watcher.start();
+
+    std::cin.get();
+    watcher.stop();
+
+    return 0;
+}
