@@ -125,3 +125,153 @@ int main() {
     
     return 0;
 }
+#include <iostream>
+#include <string>
+#include <vector>
+#include <thread>
+#include <chrono>
+#include <atomic>
+#include <boost/asio.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/bind/bind.hpp>
+#include <boost/system/error_code.hpp>
+
+namespace fs = boost::filesystem;
+namespace asio = boost::asio;
+
+class FileSystemWatcher {
+public:
+    FileSystemWatcher(asio::io_context& io_context, const std::string& path)
+        : io_context_(io_context),
+          path_(path),
+          timer_(io_context),
+          running_(false) {
+        if (fs::exists(path_) && fs::is_directory(path_)) {
+            update_file_map();
+        }
+    }
+
+    void start() {
+        if (running_) return;
+        running_ = true;
+        schedule_check();
+    }
+
+    void stop() {
+        running_ = false;
+        timer_.cancel();
+    }
+
+private:
+    void update_file_map() {
+        FileMap new_map;
+        for (fs::recursive_directory_iterator it(path_), end; it != end; ++it) {
+            if (fs::is_regular_file(it->path())) {
+                new_map[it->path().string()] = fs::last_write_time(it->path());
+            }
+        }
+        file_map_.swap(new_map);
+    }
+
+    void check_for_changes() {
+        if (!running_) return;
+
+        std::vector<std::string> created, modified, deleted;
+        FileMap current_map;
+
+        for (fs::recursive_directory_iterator it(path_), end; it != end; ++it) {
+            if (fs::is_regular_file(it->path())) {
+                std::string file_path = it->path().string();
+                std::time_t last_write = fs::last_write_time(it->path());
+                current_map[file_path] = last_write;
+
+                auto old_it = file_map_.find(file_path);
+                if (old_it == file_map_.end()) {
+                    created.push_back(file_path);
+                } else if (old_it->second != last_write) {
+                    modified.push_back(file_path);
+                }
+            }
+        }
+
+        for (const auto& entry : file_map_) {
+            if (current_map.find(entry.first) == current_map.end()) {
+                deleted.push_back(entry.first);
+            }
+        }
+
+        if (!created.empty() || !modified.empty() || !deleted.empty()) {
+            handle_changes(created, modified, deleted);
+            file_map_.swap(current_map);
+        }
+
+        schedule_check();
+    }
+
+    void handle_changes(const std::vector<std::string>& created,
+                        const std::vector<std::string>& modified,
+                        const std::vector<std::string>& deleted) {
+        std::cout << "File system changes detected:\n";
+        for (const auto& file : created) {
+            std::cout << "  Created: " << file << "\n";
+        }
+        for (const auto& file : modified) {
+            std::cout << "  Modified: " << file << "\n";
+        }
+        for (const auto& file : deleted) {
+            std::cout << "  Deleted: " << file << "\n";
+        }
+        std::cout << std::endl;
+    }
+
+    void schedule_check() {
+        timer_.expires_after(std::chrono::seconds(1));
+        timer_.async_wait([this](const boost::system::error_code& ec) {
+            if (!ec && running_) {
+                check_for_changes();
+            }
+        });
+    }
+
+    asio::io_context& io_context_;
+    std::string path_;
+    asio::steady_timer timer_;
+    std::atomic<bool> running_;
+
+    using FileMap = std::unordered_map<std::string, std::time_t>;
+    FileMap file_map_;
+};
+
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <directory_path>\n";
+        return 1;
+    }
+
+    try {
+        asio::io_context io_context;
+        FileSystemWatcher watcher(io_context, argv[1]);
+
+        std::cout << "Watching directory: " << argv[1] << "\n";
+        std::cout << "Press Enter to stop...\n";
+
+        watcher.start();
+
+        std::thread io_thread([&io_context]() {
+            io_context.run();
+        });
+
+        std::cin.get();
+
+        watcher.stop();
+        io_context.stop();
+        io_thread.join();
+
+        std::cout << "File system watcher stopped.\n";
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n";
+        return 1;
+    }
+
+    return 0;
+}
