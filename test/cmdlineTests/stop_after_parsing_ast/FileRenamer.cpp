@@ -1,75 +1,59 @@
 
 #include <iostream>
 #include <filesystem>
+#include <chrono>
+#include <iomanip>
 #include <string>
-#include <vector>
-#include <algorithm>
 
 namespace fs = std::filesystem;
 
-class FileRenamer {
-public:
-    static bool renameFilesInDirectory(const fs::path& directory,
-                                       const std::string& prefix,
-                                       int startNumber = 1,
-                                       const std::string& extensionFilter = "") {
-        if (!fs::exists(directory) || !fs::is_directory(directory)) {
-            std::cerr << "Error: Invalid directory path." << std::endl;
-            return false;
-        }
+std::string getCurrentTimestamp() {
+    auto now = std::chrono::system_clock::now();
+    auto time = std::chrono::system_clock::to_time_t(now);
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&time), "%Y%m%d_%H%M%S");
+    return ss.str();
+}
 
-        std::vector<fs::path> files;
-        for (const auto& entry : fs::directory_iterator(directory)) {
-            if (fs::is_regular_file(entry.status())) {
-                if (extensionFilter.empty() ||
-                    entry.path().extension() == extensionFilter) {
-                    files.push_back(entry.path());
-                }
-            }
-        }
-
-        if (files.empty()) {
-            std::cout << "No files found matching criteria." << std::endl;
-            return true;
-        }
-
-        std::sort(files.begin(), files.end());
-
-        int currentNumber = startNumber;
-        for (const auto& oldPath : files) {
-            std::string newFilename = prefix + std::to_string(currentNumber) + oldPath.extension().string();
-            fs::path newPath = directory / newFilename;
-
-            try {
-                fs::rename(oldPath, newPath);
-                std::cout << "Renamed: " << oldPath.filename() << " -> " << newFilename << std::endl;
-                ++currentNumber;
-            } catch (const fs::filesystem_error& e) {
-                std::cerr << "Failed to rename " << oldPath.filename() << ": " << e.what() << std::endl;
-                return false;
-            }
-        }
-
-        std::cout << "Successfully renamed " << files.size() << " files." << std::endl;
-        return true;
+bool renameFileWithTimestamp(const fs::path& filePath) {
+    if (!fs::exists(filePath)) {
+        std::cerr << "Error: File does not exist." << std::endl;
+        return false;
     }
-};
+
+    if (!fs::is_regular_file(filePath)) {
+        std::cerr << "Error: Path is not a regular file." << std::endl;
+        return false;
+    }
+
+    std::string timestamp = getCurrentTimestamp();
+    fs::path parentDir = filePath.parent_path();
+    std::string extension = filePath.extension().string();
+    std::string filename = filePath.stem().string();
+
+    fs::path newPath = parentDir / (timestamp + "_" + filename + extension);
+
+    if (fs::exists(newPath)) {
+        std::cerr << "Error: Target file already exists." << std::endl;
+        return false;
+    }
+
+    try {
+        fs::rename(filePath, newPath);
+        std::cout << "Renamed: " << filePath << " -> " << newPath << std::endl;
+        return true;
+    } catch (const fs::filesystem_error& e) {
+        std::cerr << "Error renaming file: " << e.what() << std::endl;
+        return false;
+    }
+}
 
 int main(int argc, char* argv[]) {
-    if (argc < 3) {
-        std::cout << "Usage: " << argv[0] << " <directory> <prefix> [startNumber] [extensionFilter]" << std::endl;
-        std::cout << "Example: " << argv[0] << " ./photos vacation_ 1 .jpg" << std::endl;
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <file_path>" << std::endl;
         return 1;
     }
 
-    fs::path targetDir(argv[1]);
-    std::string prefix(argv[2]);
-    int startNumber = (argc > 3) ? std::stoi(argv[3]) : 1;
-    std::string extensionFilter = (argc > 4) ? argv[4] : "";
-
-    if (!extensionFilter.empty() && extensionFilter[0] != '.') {
-        extensionFilter = "." + extensionFilter;
-    }
-
-    return FileRenamer::renameFilesInDirectory(targetDir, prefix, startNumber, extensionFilter) ? 0 : 1;
+    fs::path targetFile(argv[1]);
+    return renameFileWithTimestamp(targetFile) ? 0 : 1;
 }
