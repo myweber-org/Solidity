@@ -1,47 +1,54 @@
 
 #include <iostream>
 #include <filesystem>
-#include <chrono>
-#include <iomanip>
 #include <string>
+#include <vector>
+#include <algorithm>
 
 namespace fs = std::filesystem;
 
-void renameFileWithTimestamp(const fs::path& filePath) {
-    if (!fs::exists(filePath)) {
-        std::cerr << "Error: File does not exist." << std::endl;
-        return;
-    }
-
-    if (!fs::is_regular_file(filePath)) {
-        std::cerr << "Error: Path is not a regular file." << std::endl;
-        return;
-    }
-
-    auto now = std::chrono::system_clock::now();
-    auto in_time_t = std::chrono::system_clock::to_time_t(now);
-    std::stringstream timestamp;
-    timestamp << std::put_time(std::localtime(&in_time_t), "%Y%m%d_%H%M%S");
-
-    fs::path parentDir = filePath.parent_path();
-    fs::path newFileName = parentDir / (timestamp.str() + "_" + filePath.filename().string());
-
+void renameFilesSequentially(const std::string& directoryPath, const std::string& baseName) {
     try {
-        fs::rename(filePath, newFileName);
-        std::cout << "Renamed: " << filePath.filename() << " -> " << newFileName.filename() << std::endl;
+        std::vector<fs::path> files;
+        for (const auto& entry : fs::directory_iterator(directoryPath)) {
+            if (fs::is_regular_file(entry.status())) {
+                files.push_back(entry.path());
+            }
+        }
+
+        std::sort(files.begin(), files.end());
+
+        int counter = 1;
+        for (const auto& file : files) {
+            std::string extension = file.extension().string();
+            std::string newFileName = baseName + "_" + std::to_string(counter) + extension;
+            fs::path newFilePath = fs::path(directoryPath) / newFileName;
+
+            try {
+                fs::rename(file, newFilePath);
+                std::cout << "Renamed: " << file.filename() << " -> " << newFileName << std::endl;
+                ++counter;
+            } catch (const fs::filesystem_error& e) {
+                std::cerr << "Error renaming " << file.filename() << ": " << e.what() << std::endl;
+            }
+        }
+
+        std::cout << "Renaming completed. Total files processed: " << counter - 1 << std::endl;
     } catch (const fs::filesystem_error& e) {
-        std::cerr << "Error renaming file: " << e.what() << std::endl;
+        std::cerr << "Error accessing directory: " << e.what() << std::endl;
     }
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <file_path>" << std::endl;
+    if (argc != 3) {
+        std::cout << "Usage: " << argv[0] << " <directory_path> <base_name>" << std::endl;
         return 1;
     }
 
-    fs::path targetFile(argv[1]);
-    renameFileWithTimestamp(targetFile);
+    std::string directoryPath = argv[1];
+    std::string baseName = argv[2];
+
+    renameFilesSequentially(directoryPath, baseName);
 
     return 0;
 }
