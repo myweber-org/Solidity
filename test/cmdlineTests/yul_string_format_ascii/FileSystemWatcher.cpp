@@ -111,4 +111,88 @@ int main() {
     watcher.stop();
     
     return 0;
+}#include <iostream>
+#include <filesystem>
+#include <chrono>
+#include <thread>
+#include <unordered_set>
+
+namespace fs = std::filesystem;
+
+class FileSystemWatcher {
+private:
+    fs::path path_to_watch;
+    std::unordered_set<std::string> current_files;
+
+    void rebuild_file_set() {
+        current_files.clear();
+        for (const auto& entry : fs::directory_iterator(path_to_watch)) {
+            current_files.insert(entry.path().filename().string());
+        }
+    }
+
+public:
+    FileSystemWatcher(const std::string& path) : path_to_watch(path) {
+        if (!fs::exists(path_to_watch) || !fs::is_directory(path_to_watch)) {
+            throw std::invalid_argument("Provided path is not a valid directory.");
+        }
+        rebuild_file_set();
+        std::cout << "Watching directory: " << fs::absolute(path_to_watch) << std::endl;
+    }
+
+    void check_for_changes() {
+        auto start_time = std::chrono::steady_clock::now();
+        std::unordered_set<std::string> new_files;
+
+        for (const auto& entry : fs::directory_iterator(path_to_watch)) {
+            new_files.insert(entry.path().filename().string());
+        }
+
+        for (const auto& file : new_files) {
+            if (current_files.find(file) == current_files.end()) {
+                std::cout << "[+] File added: " << file << std::endl;
+            }
+        }
+
+        for (const auto& file : current_files) {
+            if (new_files.find(file) == new_files.end()) {
+                std::cout << "[-] File removed: " << file << std::endl;
+            }
+        }
+
+        current_files = std::move(new_files);
+
+        auto end_time = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        std::cout << "Scan completed in " << elapsed.count() << " ms. Next scan in 2 seconds." << std::endl;
+    }
+
+    void start_monitoring(int interval_seconds = 2) {
+        std::cout << "Starting monitoring. Press Ctrl+C to stop." << std::endl;
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
+            try {
+                check_for_changes();
+            } catch (const std::exception& e) {
+                std::cerr << "Error during scan: " << e.what() << std::endl;
+            }
+        }
+    }
+};
+
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <directory_to_watch>" << std::endl;
+        return 1;
+    }
+
+    try {
+        FileSystemWatcher watcher(argv[1]);
+        watcher.start_monitoring();
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to initialize watcher: " << e.what() << std::endl;
+        return 1;
+    }
+
+    return 0;
 }
