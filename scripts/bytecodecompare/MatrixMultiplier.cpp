@@ -264,3 +264,130 @@ int main() {
     
     return 0;
 }
+#include <iostream>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <omp.h>
+
+class ParallelMatrixMultiplier {
+private:
+    std::vector<std::vector<double>> matrixA;
+    std::vector<std::vector<double>> matrixB;
+    std::vector<std::vector<double>> result;
+    size_t rowsA, colsA, rowsB, colsB;
+
+public:
+    ParallelMatrixMultiplier(size_t rA, size_t cA, size_t rB, size_t cB) 
+        : rowsA(rA), colsA(cA), rowsB(rB), colsB(cB) {
+        
+        if (colsA != rowsB) {
+            throw std::invalid_argument("Matrix dimensions incompatible for multiplication");
+        }
+
+        matrixA.resize(rowsA, std::vector<double>(colsA));
+        matrixB.resize(rowsB, std::vector<double>(colsB));
+        result.resize(rowsA, std::vector<double>(colsB, 0.0));
+
+        initializeRandomMatrices();
+    }
+
+    void initializeRandomMatrices() {
+        std::srand(static_cast<unsigned>(std::time(nullptr)));
+        
+        for (size_t i = 0; i < rowsA; ++i) {
+            for (size_t j = 0; j < colsA; ++j) {
+                matrixA[i][j] = static_cast<double>(std::rand()) / RAND_MAX * 100.0;
+            }
+        }
+
+        for (size_t i = 0; i < rowsB; ++i) {
+            for (size_t j = 0; j < colsB; ++j) {
+                matrixB[i][j] = static_cast<double>(std::rand()) / RAND_MAX * 100.0;
+            }
+        }
+    }
+
+    void multiplySequential() {
+        for (size_t i = 0; i < rowsA; ++i) {
+            for (size_t j = 0; j < colsB; ++j) {
+                double sum = 0.0;
+                for (size_t k = 0; k < colsA; ++k) {
+                    sum += matrixA[i][k] * matrixB[k][j];
+                }
+                result[i][j] = sum;
+            }
+        }
+    }
+
+    void multiplyParallel() {
+        #pragma omp parallel for collapse(2) schedule(dynamic)
+        for (size_t i = 0; i < rowsA; ++i) {
+            for (size_t j = 0; j < colsB; ++j) {
+                double sum = 0.0;
+                for (size_t k = 0; k < colsA; ++k) {
+                    sum += matrixA[i][k] * matrixB[k][j];
+                }
+                result[i][j] = sum;
+            }
+        }
+    }
+
+    void displayMatrix(const std::vector<std::vector<double>>& mat, 
+                      size_t maxRows = 5, size_t maxCols = 5) const {
+        size_t displayRows = std::min(mat.size(), maxRows);
+        size_t displayCols = (mat.empty()) ? 0 : std::min(mat[0].size(), maxCols);
+
+        std::cout << "Matrix preview (first " << displayRows << "x" << displayCols << "):\n";
+        for (size_t i = 0; i < displayRows; ++i) {
+            for (size_t j = 0; j < displayCols; ++j) {
+                std::cout << mat[i][j] << "\t";
+            }
+            std::cout << "\n";
+        }
+    }
+
+    void benchmarkMultiplication() {
+        double startTime, endTime;
+
+        std::cout << "Benchmarking matrix multiplication (" 
+                  << rowsA << "x" << colsA << " * " 
+                  << rowsB << "x" << colsB << ")...\n";
+
+        startTime = omp_get_wtime();
+        multiplySequential();
+        endTime = omp_get_wtime();
+        std::cout << "Sequential execution time: " << (endTime - startTime) << " seconds\n";
+
+        startTime = omp_get_wtime();
+        multiplyParallel();
+        endTime = omp_get_wtime();
+        std::cout << "Parallel execution time: " << (endTime - startTime) << " seconds\n";
+
+        std::cout << "Speedup factor: " 
+                  << ((endTime - startTime) > 0 ? 
+                      (rowsA * colsB * colsA * 2) / (endTime - startTime) / 1e9 : 0) 
+                  << " GFLOPs\n";
+    }
+
+    const std::vector<std::vector<double>>& getResult() const {
+        return result;
+    }
+};
+
+int main() {
+    try {
+        const size_t SIZE = 512;
+        ParallelMatrixMultiplier multiplier(SIZE, SIZE, SIZE, SIZE);
+        
+        multiplier.benchmarkMultiplication();
+        
+        std::cout << "\nVerification sample:\n";
+        multiplier.displayMatrix(multiplier.getResult());
+
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+}
