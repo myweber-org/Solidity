@@ -1,56 +1,61 @@
 
 #include <iostream>
 #include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <omp.h>
 
-std::vector<std::vector<int>> multiplyMatrices(const std::vector<std::vector<int>>& A,
-                                                const std::vector<std::vector<int>>& B) {
-    int rowsA = A.size();
-    int colsA = A[0].size();
-    int rowsB = B.size();
-    int colsB = B[0].size();
+using namespace std;
 
-    if (colsA != rowsB) {
-        throw std::invalid_argument("Matrices dimensions are not compatible for multiplication.");
-    }
-
-    std::vector<std::vector<int>> result(rowsA, std::vector<int>(colsB, 0));
-
-    for (int i = 0; i < rowsA; ++i) {
-        for (int j = 0; j < colsB; ++j) {
-            for (int k = 0; k < colsA; ++k) {
-                result[i][j] += A[i][k] * B[k][j];
-            }
+vector<vector<double>> generate_random_matrix(int rows, int cols) {
+    vector<vector<double>> matrix(rows, vector<double>(cols));
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX;
         }
     }
+    return matrix;
+}
 
+vector<vector<double>> multiply_matrices_parallel(const vector<vector<double>>& A,
+                                                  const vector<vector<double>>& B) {
+    int rows_A = A.size();
+    int cols_A = A[0].size();
+    int cols_B = B[0].size();
+    
+    vector<vector<double>> result(rows_A, vector<double>(cols_B, 0.0));
+    
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < rows_A; ++i) {
+        for (int j = 0; j < cols_B; ++j) {
+            double sum = 0.0;
+            for (int k = 0; k < cols_A; ++k) {
+                sum += A[i][k] * B[k][j];
+            }
+            result[i][j] = sum;
+        }
+    }
+    
     return result;
 }
 
-void printMatrix(const std::vector<std::vector<int>>& matrix) {
-    for (const auto& row : matrix) {
-        for (int val : row) {
-            std::cout << val << " ";
-        }
-        std::cout << std::endl;
-    }
-}
-
 int main() {
-    std::vector<std::vector<int>> matrixA = {{1, 2, 3},
-                                              {4, 5, 6}};
-
-    std::vector<std::vector<int>> matrixB = {{7, 8},
-                                              {9, 10},
-                                              {11, 12}};
-
-    try {
-        std::vector<std::vector<int>> product = multiplyMatrices(matrixA, matrixB);
-        std::cout << "Result of matrix multiplication:" << std::endl;
-        printMatrix(product);
-    } catch (const std::invalid_argument& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return 1;
-    }
-
+    srand(static_cast<unsigned>(time(nullptr)));
+    
+    const int N = 500;
+    const int M = 500;
+    const int P = 500;
+    
+    cout << "Generating random matrices of size " << N << "x" << M << " and " << M << "x" << P << "..." << endl;
+    auto matrix_A = generate_random_matrix(N, M);
+    auto matrix_B = generate_random_matrix(M, P);
+    
+    cout << "Performing parallel matrix multiplication..." << endl;
+    double start_time = omp_get_wtime();
+    auto result = multiply_matrices_parallel(matrix_A, matrix_B);
+    double end_time = omp_get_wtime();
+    
+    cout << "Multiplication completed in " << (end_time - start_time) << " seconds." << endl;
+    
     return 0;
 }
