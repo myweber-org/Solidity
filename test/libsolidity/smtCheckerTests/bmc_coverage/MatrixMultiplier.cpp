@@ -47,7 +47,7 @@ public:
     }
 
     void multiplyParallel() {
-        #pragma omp parallel for collapse(2)
+        #pragma omp parallel for collapse(2) schedule(dynamic)
         for (size_t i = 0; i < rowsA; ++i) {
             for (size_t j = 0; j < colsB; ++j) {
                 double sum = 0.0;
@@ -69,10 +69,10 @@ public:
                 }
             }
         }
-        std::cout << "Result verification passed" << std::endl;
+        std::cout << "Result verification successful" << std::endl;
     }
 
-    void benchmarkMultiplication() {
+    void benchmark() {
         std::vector<std::vector<double>> sequentialResult = result;
         
         clock_t start = clock();
@@ -97,14 +97,13 @@ public:
         size_t displayRows = std::min(maxRows, matrix.size());
         size_t displayCols = (matrix.empty()) ? 0 : std::min(maxCols, matrix[0].size());
         
+        std::cout << "Matrix preview (first " << displayRows << "x" << displayCols << "):" << std::endl;
         for (size_t i = 0; i < displayRows; ++i) {
             for (size_t j = 0; j < displayCols; ++j) {
                 std::cout << matrix[i][j] << "\t";
             }
-            if (displayCols < matrix[0].size()) std::cout << "...";
             std::cout << std::endl;
         }
-        if (displayRows < matrix.size()) std::cout << "...\n" << std::endl;
     }
 };
 
@@ -115,14 +114,13 @@ int main() {
         const size_t rowsB = 500;
         const size_t colsB = 500;
         
-        std::cout << "Initializing matrices for multiplication (" 
-                  << rowsA << "x" << colsA << ") * (" 
-                  << rowsB << "x" << colsB << ")..." << std::endl;
+        std::cout << "Initializing matrices for multiplication: " 
+                  << rowsA << "x" << colsA << " * " << rowsB << "x" << colsB << std::endl;
         
         ParallelMatrixMultiplier multiplier(rowsA, colsA, rowsB, colsB);
         
-        std::cout << "\nBenchmarking matrix multiplication..." << std::endl;
-        multiplier.benchmarkMultiplication();
+        std::cout << "\nRunning benchmark..." << std::endl;
+        multiplier.benchmark();
         
         return 0;
     } catch (const std::exception& e) {
