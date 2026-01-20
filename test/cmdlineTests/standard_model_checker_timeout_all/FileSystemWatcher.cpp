@@ -1,82 +1,74 @@
 #include <iostream>
-#include <filesystem>
+#include <string>
 #include <chrono>
 #include <thread>
-#include <unordered_map>
-#include <string>
+#include <boost/asio.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/bind/bind.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
 
-namespace fs = std::filesystem;
+namespace fs = boost::filesystem;
+namespace asio = boost::asio;
 
 class FileSystemWatcher {
-private:
-    fs::path directory_path;
-    std::unordered_map<std::string, fs::file_time_type> file_timestamps;
-    bool running;
-
-    void populate_timestamps() {
-        file_timestamps.clear();
-        for (const auto& entry : fs::directory_iterator(directory_path)) {
-            if (fs::is_regular_file(entry.status())) {
-                file_timestamps[entry.path().filename().string()] = fs::last_write_time(entry);
-            }
-        }
-    }
-
 public:
-    FileSystemWatcher(const std::string& path) : directory_path(path), running(false) {
-        if (!fs::exists(directory_path) || !fs::is_directory(directory_path)) {
-            throw std::runtime_error("Provided path is not a valid directory.");
-        }
-        populate_timestamps();
+    FileSystemWatcher(asio::io_service& io_service, const std::string& path)
+        : timer_(io_service), watch_path_(path), last_check_time_(boost::posix_time::second_clock::local_time()) {
+        start_watch();
     }
 
-    void start_watching(int interval_seconds = 1) {
-        running = true;
-        std::cout << "Watching directory: " << directory_path << std::endl;
+private:
+    void start_watch() {
+        timer_.expires_from_now(boost::posix_time::seconds(1));
+        timer_.async_wait(boost::bind(&FileSystemWatcher::check_files, this, asio::placeholders::error));
+    }
 
-        while (running) {
-            std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
+    void check_files(const boost::system::error_code& ec) {
+        if (ec) {
+            std::cerr << "Timer error: " << ec.message() << std::endl;
+            return;
+        }
 
-            for (const auto& entry : fs::directory_iterator(directory_path)) {
-                if (fs::is_regular_file(entry.status())) {
-                    std::string filename = entry.path().filename().string();
-                    auto current_time = fs::last_write_time(entry);
+        try {
+            boost::posix_time::ptime current_time = boost::posix_time::second_clock::local_time();
+            for (fs::directory_iterator it(watch_path_); it != fs::directory_iterator(); ++it) {
+                if (fs::is_regular_file(it->status())) {
+                    std::time_t last_write = fs::last_write_time(it->path());
+                    boost::posix_time::ptime file_time = boost::posix_time::from_time_t(last_write);
 
-                    if (file_timestamps.find(filename) == file_timestamps.end()) {
-                        std::cout << "New file detected: " << filename << std::endl;
-                        file_timestamps[filename] = current_time;
-                    } else if (file_timestamps[filename] != current_time) {
-                        std::cout << "File modified: " << filename << std::endl;
-                        file_timestamps[filename] = current_time;
+                    if (file_time > last_check_time_) {
+                        std::cout << "File modified: " << it->path().filename().string()
+                                  << " at " << file_time << std::endl;
                     }
                 }
             }
-
-            std::vector<std::string> files_to_remove;
-            for (const auto& [filename, _] : file_timestamps) {
-                if (!fs::exists(directory_path / filename)) {
-                    std::cout << "File deleted: " << filename << std::endl;
-                    files_to_remove.push_back(filename);
-                }
-            }
-            for (const auto& filename : files_to_remove) {
-                file_timestamps.erase(filename);
-            }
+            last_check_time_ = current_time;
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Filesystem error: " << e.what() << std::endl;
         }
+
+        start_watch();
     }
 
-    void stop_watching() {
-        running = false;
-    }
+    asio::deadline_timer timer_;
+    std::string watch_path_;
+    boost::posix_time::ptime last_check_time_;
 };
 
-int main() {
-    try {
-        FileSystemWatcher watcher(".");
-        watcher.start_watching(2);
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <directory_to_watch>" << std::endl;
         return 1;
     }
+
+    try {
+        asio::io_service io_service;
+        FileSystemWatcher watcher(io_service, argv[1]);
+        io_service.run();
+    } catch (const std::exception& e) {
+        std::cerr << "Exception: " << e.what() << std::endl;
+        return 1;
+    }
+
     return 0;
 }
