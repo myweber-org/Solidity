@@ -3,104 +3,71 @@
 #include <chrono>
 #include <thread>
 #include <unordered_set>
-#include <functional>
 
 namespace fs = std::filesystem;
 
 class FileSystemWatcher {
-public:
-    using Callback = std::function<void(const fs::path&, const std::string&)>;
-
-    FileSystemWatcher(const fs::path& directory, Callback callback)
-        : watch_directory(directory), notify_callback(callback), running(false) {
-        if (!fs::exists(directory) || !fs::is_directory(directory)) {
-            throw std::runtime_error("Invalid directory path provided.");
-        }
-        scan_existing_files();
-    }
-
-    ~FileSystemWatcher() {
-        stop();
-    }
-
-    void start() {
-        running = true;
-        monitor_thread = std::thread(&FileSystemWatcher::monitor_loop, this);
-    }
-
-    void stop() {
-        running = false;
-        if (monitor_thread.joinable()) {
-            monitor_thread.join();
-        }
-    }
-
 private:
-    fs::path watch_directory;
-    Callback notify_callback;
-    std::unordered_set<std::string> known_files;
-    std::thread monitor_thread;
+    fs::path watchPath;
+    std::unordered_set<std::string> currentFiles;
     bool running;
 
-    void scan_existing_files() {
-        known_files.clear();
-        for (const auto& entry : fs::directory_iterator(watch_directory)) {
+    void scanDirectory() {
+        std::unordered_set<std::string> newFiles;
+        for (const auto& entry : fs::directory_iterator(watchPath)) {
             if (entry.is_regular_file()) {
-                known_files.insert(entry.path().filename().string());
+                newFiles.insert(entry.path().filename().string());
             }
         }
+
+        for (const auto& file : newFiles) {
+            if (currentFiles.find(file) == currentFiles.end()) {
+                std::cout << "File added: " << file << std::endl;
+            }
+        }
+
+        for (const auto& file : currentFiles) {
+            if (newFiles.find(file) == newFiles.end()) {
+                std::cout << "File removed: " << file << std::endl;
+            }
+        }
+
+        currentFiles = std::move(newFiles);
     }
 
-    void monitor_loop() {
+public:
+    FileSystemWatcher(const std::string& path) : watchPath(path), running(false) {
+        if (!fs::exists(watchPath) || !fs::is_directory(watchPath)) {
+            throw std::runtime_error("Invalid directory path");
+        }
+        scanDirectory();
+    }
+
+    void startMonitoring(int intervalSeconds = 5) {
+        running = true;
+        std::cout << "Monitoring directory: " << watchPath.string() << std::endl;
+
         while (running) {
-            auto current_files = get_current_file_list();
-            detect_changes(current_files);
-            std::this_thread::sleep_for(std::chrono::seconds(2));
+            std::this_thread::sleep_for(std::chrono::seconds(intervalSeconds));
+            try {
+                scanDirectory();
+            } catch (const std::exception& e) {
+                std::cerr << "Error scanning directory: " << e.what() << std::endl;
+            }
         }
     }
 
-    std::unordered_set<std::string> get_current_file_list() {
-        std::unordered_set<std::string> current;
-        for (const auto& entry : fs::directory_iterator(watch_directory)) {
-            if (entry.is_regular_file()) {
-                current.insert(entry.path().filename().string());
-            }
-        }
-        return current;
-    }
-
-    void detect_changes(const std::unordered_set<std::string>& current) {
-        for (const auto& file : current) {
-            if (known_files.find(file) == known_files.end()) {
-                notify_callback(watch_directory / file, "created");
-            }
-        }
-
-        for (const auto& old_file : known_files) {
-            if (current.find(old_file) == current.end()) {
-                notify_callback(watch_directory / old_file, "deleted");
-            }
-        }
-
-        known_files = current;
+    void stopMonitoring() {
+        running = false;
     }
 };
 
-void example_callback(const fs::path& file_path, const std::string& action) {
-    std::cout << "File: " << file_path.filename() << " Action: " << action << std::endl;
-}
-
 int main() {
     try {
-        FileSystemWatcher watcher("./test_dir", example_callback);
-        watcher.start();
-
-        std::cout << "Watching directory. Press Enter to stop..." << std::endl;
-        std::cin.get();
-
-        watcher.stop();
+        FileSystemWatcher watcher("./logs");
+        watcher.startMonitoring(3);
     } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+        std::cerr << "Failed to start watcher: " << e.what() << std::endl;
         return 1;
     }
     return 0;
