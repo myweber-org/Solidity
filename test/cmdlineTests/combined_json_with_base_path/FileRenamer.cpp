@@ -7,48 +7,77 @@
 
 namespace fs = std::filesystem;
 
-void renameFilesSequentially(const std::string& directoryPath, const std::string& baseName) {
-    try {
-        std::vector<fs::path> files;
-        for (const auto& entry : fs::directory_iterator(directoryPath)) {
-            if (fs::is_regular_file(entry.status())) {
-                files.push_back(entry.path());
+class FileRenamer {
+public:
+    static void renameFilesInDirectory(const std::string& directoryPath,
+                                       const std::string& prefix,
+                                       int startNumber = 1,
+                                       const std::string& targetExtension = "") {
+        try {
+            if (!fs::exists(directoryPath) || !fs::is_directory(directoryPath)) {
+                std::cerr << "Error: Invalid directory path." << std::endl;
+                return;
             }
-        }
 
-        std::sort(files.begin(), files.end());
-
-        int counter = 1;
-        for (const auto& file : files) {
-            std::string extension = file.extension().string();
-            std::string newFileName = baseName + "_" + std::to_string(counter) + extension;
-            fs::path newFilePath = fs::path(directoryPath) / newFileName;
-
-            try {
-                fs::rename(file, newFilePath);
-                std::cout << "Renamed: " << file.filename() << " -> " << newFileName << std::endl;
-                ++counter;
-            } catch (const fs::filesystem_error& e) {
-                std::cerr << "Error renaming " << file.filename() << ": " << e.what() << std::endl;
+            std::vector<fs::path> files;
+            for (const auto& entry : fs::directory_iterator(directoryPath)) {
+                if (fs::is_regular_file(entry.status())) {
+                    if (targetExtension.empty() ||
+                        entry.path().extension() == targetExtension) {
+                        files.push_back(entry.path());
+                    }
+                }
             }
+
+            std::sort(files.begin(), files.end());
+
+            int counter = startNumber;
+            for (const auto& oldPath : files) {
+                std::string extension = oldPath.extension().string();
+                std::string newFilename = prefix + std::to_string(counter) + extension;
+                fs::path newPath = oldPath.parent_path() / newFilename;
+
+                try {
+                    fs::rename(oldPath, newPath);
+                    std::cout << "Renamed: " << oldPath.filename()
+                              << " -> " << newPath.filename() << std::endl;
+                    counter++;
+                } catch (const fs::filesystem_error& e) {
+                    std::cerr << "Failed to rename " << oldPath.filename()
+                              << ": " << e.what() << std::endl;
+                }
+            }
+
+            std::cout << "Renaming completed. Total files processed: "
+                      << (counter - startNumber) << std::endl;
+
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Filesystem error: " << e.what() << std::endl;
         }
-
-        std::cout << "Renaming completed. Total files processed: " << counter - 1 << std::endl;
-    } catch (const fs::filesystem_error& e) {
-        std::cerr << "Error accessing directory: " << e.what() << std::endl;
     }
-}
+};
 
-int main(int argc, char* argv[]) {
-    if (argc != 3) {
-        std::cout << "Usage: " << argv[0] << " <directory_path> <base_name>" << std::endl;
-        return 1;
-    }
+int main() {
+    std::string directory;
+    std::string prefix;
+    std::string extensionFilter;
+    int startNum;
 
-    std::string directoryPath = argv[1];
-    std::string baseName = argv[2];
+    std::cout << "Enter directory path: ";
+    std::getline(std::cin, directory);
 
-    renameFilesSequentially(directoryPath, baseName);
+    std::cout << "Enter filename prefix: ";
+    std::getline(std::cin, prefix);
+
+    std::cout << "Enter starting number (default 1): ";
+    std::string startInput;
+    std::getline(std::cin, startInput);
+    startNum = startInput.empty() ? 1 : std::stoi(startInput);
+
+    std::cout << "Enter file extension to filter (e.g., .txt, leave empty for all): ";
+    std::getline(std::cin, extensionFilter);
+
+    FileRenamer::renameFilesInDirectory(directory, prefix, startNum, extensionFilter);
 
     return 0;
 }
