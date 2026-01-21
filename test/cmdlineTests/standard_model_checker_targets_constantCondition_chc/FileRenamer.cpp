@@ -1,73 +1,55 @@
+
 #include <iostream>
 #include <filesystem>
 #include <string>
-#include <regex>
 #include <vector>
+#include <algorithm>
 
 namespace fs = std::filesystem;
 
-void renameFilesInDirectory(const fs::path& directory, const std::string& pattern, const std::string& replacement) {
+void renameFilesInDirectory(const fs::path& directory, const std::string& prefix) {
     if (!fs::exists(directory) || !fs::is_directory(directory)) {
-        std::cerr << "Error: Invalid directory path.\n";
+        std::cerr << "Error: Invalid directory path." << std::endl;
         return;
     }
 
-    std::regex regexPattern(pattern);
-    std::vector<std::pair<fs::path, fs::path>> renameOperations;
-
+    std::vector<fs::path> files;
     for (const auto& entry : fs::directory_iterator(directory)) {
-        if (entry.is_regular_file()) {
-            std::string oldName = entry.path().filename().string();
-            std::string newName = std::regex_replace(oldName, regexPattern, replacement);
-
-            if (oldName != newName && !newName.empty()) {
-                fs::path newPath = entry.path().parent_path() / newName;
-                renameOperations.emplace_back(entry.path(), newPath);
-            }
+        if (fs::is_regular_file(entry.status())) {
+            files.push_back(entry.path());
         }
     }
 
-    if (renameOperations.empty()) {
-        std::cout << "No files matched the pattern for renaming.\n";
-        return;
-    }
+    std::sort(files.begin(), files.end());
 
-    std::cout << "The following files will be renamed:\n";
-    for (const auto& op : renameOperations) {
-        std::cout << "  " << op.first.filename() << " -> " << op.second.filename() << '\n';
-    }
+    int counter = 1;
+    for (const auto& oldPath : files) {
+        std::string extension = oldPath.extension().string();
+        std::string newFilename = prefix + std::to_string(counter) + extension;
+        fs::path newPath = directory / newFilename;
 
-    std::cout << "Proceed? (y/n): ";
-    char confirm;
-    std::cin >> confirm;
-
-    if (confirm == 'y' || confirm == 'Y') {
-        for (const auto& op : renameOperations) {
-            try {
-                fs::rename(op.first, op.second);
-                std::cout << "Renamed: " << op.first.filename() << " -> " << op.second.filename() << '\n';
-            } catch (const fs::filesystem_error& e) {
-                std::cerr << "Failed to rename " << op.first.filename() << ": " << e.what() << '\n';
-            }
+        try {
+            fs::rename(oldPath, newPath);
+            std::cout << "Renamed: " << oldPath.filename() << " -> " << newFilename << std::endl;
+            ++counter;
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Failed to rename " << oldPath.filename() << ": " << e.what() << std::endl;
         }
-        std::cout << "Renaming complete.\n";
-    } else {
-        std::cout << "Renaming cancelled.\n";
     }
+
+    std::cout << "Renaming process completed." << std::endl;
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 4) {
-        std::cerr << "Usage: " << argv[0] << " <directory> <regex_pattern> <replacement_string>\n";
-        std::cerr << "Example: " << argv[0] << " ./files \"(.*)\\.txt\" \"$1_backup.txt\"\n";
+    if (argc != 3) {
+        std::cout << "Usage: " << argv[0] << " <directory_path> <prefix>" << std::endl;
         return 1;
     }
 
     fs::path targetDir(argv[1]);
-    std::string pattern(argv[2]);
-    std::string replacement(argv[3]);
+    std::string prefix(argv[2]);
 
-    renameFilesInDirectory(targetDir, pattern, replacement);
+    renameFilesInDirectory(targetDir, prefix);
 
     return 0;
 }
