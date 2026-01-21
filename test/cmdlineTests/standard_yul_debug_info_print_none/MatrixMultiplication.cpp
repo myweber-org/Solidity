@@ -96,3 +96,116 @@ int main() {
 
     return 0;
 }
+#include <iostream>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <omp.h>
+
+using namespace std;
+
+vector<vector<int>> generate_random_matrix(int rows, int cols) {
+    vector<vector<int>> matrix(rows, vector<int>(cols));
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            matrix[i][j] = rand() % 100;
+        }
+    }
+    return matrix;
+}
+
+vector<vector<int>> multiply_matrices_parallel(const vector<vector<int>>& A,
+                                               const vector<vector<int>>& B) {
+    int rows_A = A.size();
+    int cols_A = A[0].size();
+    int cols_B = B[0].size();
+    
+    vector<vector<int>> result(rows_A, vector<int>(cols_B, 0));
+    
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < rows_A; ++i) {
+        for (int j = 0; j < cols_B; ++j) {
+            int sum = 0;
+            for (int k = 0; k < cols_A; ++k) {
+                sum += A[i][k] * B[k][j];
+            }
+            result[i][j] = sum;
+        }
+    }
+    
+    return result;
+}
+
+vector<vector<int>> multiply_matrices_sequential(const vector<vector<int>>& A,
+                                                 const vector<vector<int>>& B) {
+    int rows_A = A.size();
+    int cols_A = A[0].size();
+    int cols_B = B[0].size();
+    
+    vector<vector<int>> result(rows_A, vector<int>(cols_B, 0));
+    
+    for (int i = 0; i < rows_A; ++i) {
+        for (int j = 0; j < cols_B; ++j) {
+            int sum = 0;
+            for (int k = 0; k < cols_A; ++k) {
+                sum += A[i][k] * B[k][j];
+            }
+            result[i][j] = sum;
+        }
+    }
+    
+    return result;
+}
+
+bool verify_matrices_equal(const vector<vector<int>>& A,
+                           const vector<vector<int>>& B) {
+    if (A.size() != B.size() || A[0].size() != B[0].size()) {
+        return false;
+    }
+    
+    for (size_t i = 0; i < A.size(); ++i) {
+        for (size_t j = 0; j < A[0].size(); ++j) {
+            if (A[i][j] != B[i][j]) {
+                return false;
+            }
+        }
+    }
+    
+    return true;
+}
+
+int main() {
+    srand(time(0));
+    
+    const int N = 500;
+    const int M = 500;
+    const int P = 500;
+    
+    cout << "Generating random matrices of size " << N << "x" << M << " and " << M << "x" << P << endl;
+    
+    auto matrix_A = generate_random_matrix(N, M);
+    auto matrix_B = generate_random_matrix(M, P);
+    
+    cout << "Performing sequential matrix multiplication..." << endl;
+    double start_seq = omp_get_wtime();
+    auto result_seq = multiply_matrices_sequential(matrix_A, matrix_B);
+    double end_seq = omp_get_wtime();
+    
+    cout << "Performing parallel matrix multiplication..." << endl;
+    double start_par = omp_get_wtime();
+    auto result_par = multiply_matrices_parallel(matrix_A, matrix_B);
+    double end_par = omp_get_wtime();
+    
+    cout << "\nPerformance Results:" << endl;
+    cout << "Sequential execution time: " << (end_seq - start_seq) << " seconds" << endl;
+    cout << "Parallel execution time: " << (end_par - start_par) << " seconds" << endl;
+    cout << "Speedup: " << (end_seq - start_seq) / (end_par - start_par) << "x" << endl;
+    
+    if (verify_matrices_equal(result_seq, result_par)) {
+        cout << "Verification: Matrices are identical" << endl;
+    } else {
+        cout << "Verification: Matrices differ!" << endl;
+    }
+    
+    return 0;
+}
