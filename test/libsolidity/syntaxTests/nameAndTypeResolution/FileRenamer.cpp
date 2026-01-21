@@ -1,122 +1,110 @@
 
 #include <iostream>
 #include <filesystem>
-#include <string>
-#include <iomanip>
-
-namespace fs = std::filesystem;
-
-void renameFilesInDirectory(const std::string& directoryPath, const std::string& baseName) {
-    try {
-        if (!fs::exists(directoryPath) || !fs::is_directory(directoryPath)) {
-            std::cerr << "Error: Invalid directory path.\n";
-            return;
-        }
-
-        int counter = 1;
-        for (const auto& entry : fs::directory_iterator(directoryPath)) {
-            if (fs::is_regular_file(entry.path())) {
-                fs::path oldPath = entry.path();
-                std::string extension = oldPath.extension().string();
-
-                std::ostringstream newFilename;
-                newFilename << baseName << "_" << std::setw(4) << std::setfill('0') << counter << extension;
-                fs::path newPath = oldPath.parent_path() / newFilename.str();
-
-                try {
-                    fs::rename(oldPath, newPath);
-                    std::cout << "Renamed: " << oldPath.filename() << " -> " << newPath.filename() << "\n";
-                    ++counter;
-                } catch (const fs::filesystem_error& e) {
-                    std::cerr << "Failed to rename " << oldPath.filename() << ": " << e.what() << "\n";
-                }
-            }
-        }
-        std::cout << "Renaming complete. " << (counter - 1) << " files processed.\n";
-    } catch (const fs::filesystem_error& e) {
-        std::cerr << "Filesystem error: " << e.what() << "\n";
-    }
-}
-
-int main(int argc, char* argv[]) {
-    if (argc != 3) {
-        std::cout << "Usage: " << argv[0] << " <directory_path> <base_name>\n";
-        std::cout << "Example: " << argv[0] << " ./photos vacation\n";
-        return 1;
-    }
-
-    std::string dirPath = argv[1];
-    std::string baseName = argv[2];
-
-    renameFilesInDirectory(dirPath, baseName);
-    return 0;
-}
-#include <iostream>
-#include <filesystem>
-#include <string>
 #include <vector>
 #include <algorithm>
+#include <regex>
 
 namespace fs = std::filesystem;
 
 class FileRenamer {
 public:
-    FileRenamer(const std::string& directory, const std::string& prefix)
-        : targetDirectory(directory), namePrefix(prefix) {}
+    FileRenamer(const std::string& directory, const std::string& pattern = ".*")
+        : dir_path(directory), file_pattern(pattern) {}
 
-    bool renameFiles() {
-        if (!fs::exists(targetDirectory) || !fs::is_directory(targetDirectory)) {
-            std::cerr << "Error: Directory does not exist or is not accessible." << std::endl;
+    bool scanFiles() {
+        if (!fs::exists(dir_path) || !fs::is_directory(dir_path)) {
+            std::cerr << "Error: Invalid directory path." << std::endl;
             return false;
         }
 
-        std::vector<fs::path> files;
-        for (const auto& entry : fs::directory_iterator(targetDirectory)) {
+        std::regex regex_pattern(file_pattern);
+        for (const auto& entry : fs::directory_iterator(dir_path)) {
             if (fs::is_regular_file(entry.status())) {
-                files.push_back(entry.path());
+                std::string filename = entry.path().filename().string();
+                if (std::regex_match(filename, regex_pattern)) {
+                    file_list.push_back(entry.path());
+                }
             }
         }
 
-        if (files.empty()) {
-            std::cout << "No files found in the directory." << std::endl;
-            return true;
-        }
-
-        std::sort(files.begin(), files.end());
-
-        int counter = 1;
-        for (const auto& oldPath : files) {
-            std::string extension = oldPath.extension().string();
-            std::string newFilename = namePrefix + "_" + std::to_string(counter) + extension;
-            fs::path newPath = oldPath.parent_path() / newFilename;
-
-            try {
-                fs::rename(oldPath, newPath);
-                std::cout << "Renamed: " << oldPath.filename() << " -> " << newFilename << std::endl;
-                ++counter;
-            } catch (const fs::filesystem_error& e) {
-                std::cerr << "Failed to rename " << oldPath.filename() << ": " << e.what() << std::endl;
-            }
-        }
-
-        std::cout << "Renaming completed. " << (counter - 1) << " files processed." << std::endl;
+        std::sort(file_list.begin(), file_list.end());
         return true;
     }
 
+    void renameWithPrefix(int start_index = 1, int digits = 3) {
+        if (file_list.empty()) {
+            std::cout << "No files to rename." << std::endl;
+            return;
+        }
+
+        int counter = start_index;
+        for (const auto& old_path : file_list) {
+            std::string extension = old_path.extension().string();
+            std::string new_filename = formatNumber(counter, digits) + "_" + old_path.stem().string() + extension;
+            fs::path new_path = old_path.parent_path() / new_filename;
+
+            try {
+                fs::rename(old_path, new_path);
+                std::cout << "Renamed: " << old_path.filename() << " -> " << new_filename << std::endl;
+                counter++;
+            } catch (const fs::filesystem_error& e) {
+                std::cerr << "Failed to rename " << old_path.filename() << ": " << e.what() << std::endl;
+            }
+        }
+    }
+
+    void listFiles() const {
+        if (file_list.empty()) {
+            std::cout << "File list is empty." << std::endl;
+            return;
+        }
+        std::cout << "Files matching pattern:" << std::endl;
+        for (const auto& path : file_list) {
+            std::cout << "  " << path.filename() << std::endl;
+        }
+    }
+
 private:
-    std::string targetDirectory;
-    std::string namePrefix;
+    std::string formatNumber(int num, int width) {
+        std::string result = std::to_string(num);
+        while (result.length() < static_cast<size_t>(width)) {
+            result = "0" + result;
+        }
+        return result;
+    }
+
+    fs::path dir_path;
+    std::string file_pattern;
+    std::vector<fs::path> file_list;
 };
 
 int main(int argc, char* argv[]) {
-    if (argc != 3) {
-        std::cout << "Usage: " << argv[0] << " <directory_path> <name_prefix>" << std::endl;
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <directory> [pattern]" << std::endl;
         return 1;
     }
 
     std::string directory = argv[1];
-    std::string prefix = argv[2];
+    std::string pattern = (argc > 2) ? argv[2] : ".*";
 
-    FileRenamer renamer(directory, prefix);
-    return renamer.renameFiles() ? 0 : 1;
+    FileRenamer renamer(directory, pattern);
+    if (!renamer.scanFiles()) {
+        return 1;
+    }
+
+    renamer.listFiles();
+    
+    std::cout << "\nProceed with renaming? (y/n): ";
+    char choice;
+    std::cin >> choice;
+    
+    if (choice == 'y' || choice == 'Y') {
+        renamer.renameWithPrefix();
+        std::cout << "Renaming completed." << std::endl;
+    } else {
+        std::cout << "Renaming cancelled." << std::endl;
+    }
+
+    return 0;
 }
