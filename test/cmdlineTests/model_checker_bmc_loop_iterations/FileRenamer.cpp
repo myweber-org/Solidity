@@ -1,48 +1,61 @@
 
 #include <iostream>
 #include <filesystem>
-#include <chrono>
-#include <iomanip>
 #include <string>
+#include <vector>
+#include <algorithm>
 
 namespace fs = std::filesystem;
 
-void renameFileWithTimestamp(const fs::path& filePath) {
-    if (!fs::exists(filePath)) {
-        std::cerr << "Error: File does not exist.\n";
-        return;
+class FileRenamer {
+public:
+    static void renameFiles(const std::string& directoryPath,
+                            const std::string& baseName,
+                            const std::string& extension,
+                            int startNumber = 1) {
+        if (!fs::exists(directoryPath) || !fs::is_directory(directoryPath)) {
+            std::cerr << "Error: Invalid directory path." << std::endl;
+            return;
+        }
+
+        std::vector<fs::path> files;
+        for (const auto& entry : fs::directory_iterator(directoryPath)) {
+            if (fs::is_regular_file(entry.path())) {
+                files.push_back(entry.path());
+            }
+        }
+
+        if (files.empty()) {
+            std::cout << "No files found in the directory." << std::endl;
+            return;
+        }
+
+        std::sort(files.begin(), files.end());
+
+        int counter = startNumber;
+        for (const auto& oldPath : files) {
+            std::string newFileName = baseName + "_" + std::to_string(counter) + extension;
+            fs::path newPath = fs::path(directoryPath) / newFileName;
+
+            try {
+                fs::rename(oldPath, newPath);
+                std::cout << "Renamed: " << oldPath.filename() << " -> " << newFileName << std::endl;
+                ++counter;
+            } catch (const fs::filesystem_error& e) {
+                std::cerr << "Failed to rename " << oldPath.filename() << ": " << e.what() << std::endl;
+            }
+        }
+
+        std::cout << "Renaming completed. Total files processed: " << (counter - startNumber) << std::endl;
     }
+};
 
-    if (!fs::is_regular_file(filePath)) {
-        std::cerr << "Error: Path is not a regular file.\n";
-        return;
-    }
+int main() {
+    std::string dir = "./test_files";
+    std::string base = "document";
+    std::string ext = ".txt";
 
-    auto now = std::chrono::system_clock::now();
-    auto in_time_t = std::chrono::system_clock::to_time_t(now);
-    std::stringstream timestamp;
-    timestamp << std::put_time(std::localtime(&in_time_t), "%Y%m%d_%H%M%S");
-
-    fs::path parentPath = filePath.parent_path();
-    fs::path newFileName = timestamp.str() + "_" + filePath.filename().string();
-    fs::path newFilePath = parentPath / newFileName;
-
-    try {
-        fs::rename(filePath, newFilePath);
-        std::cout << "Renamed: " << filePath.filename() << " -> " << newFileName << "\n";
-    } catch (const fs::filesystem_error& e) {
-        std::cerr << "Error renaming file: " << e.what() << "\n";
-    }
-}
-
-int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <file_path>\n";
-        return 1;
-    }
-
-    fs::path targetFile(argv[1]);
-    renameFileWithTimestamp(targetFile);
+    FileRenamer::renameFiles(dir, base, ext);
 
     return 0;
 }
