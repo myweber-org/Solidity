@@ -1,76 +1,71 @@
+
 #include <iostream>
-#include <sys/inotify.h>
-#include <unistd.h>
-#include <cstring>
-#include <limits.h>
+#include <string>
+#include <chrono>
+#include <thread>
+#include <filesystem>
+#include <boost/asio.hpp>
+#include <boost/bind/bind.hpp>
+
+namespace fs = std::filesystem;
 
 class FileSystemWatcher {
-private:
-    int inotifyFd;
-    int watchDescriptor;
-    static constexpr size_t EVENT_SIZE = sizeof(struct inotify_event);
-    static constexpr size_t BUF_LEN = 1024 * (EVENT_SIZE + NAME_MAX + 1);
-
 public:
-    FileSystemWatcher(const std::string& path) {
-        inotifyFd = inotify_init();
-        if (inotifyFd < 0) {
-            std::cerr << "Error initializing inotify" << std::endl;
-            return;
-        }
-
-        watchDescriptor = inotify_add_watch(inotifyFd, path.c_str(), IN_MODIFY | IN_CREATE | IN_DELETE);
-        if (watchDescriptor < 0) {
-            std::cerr << "Error adding watch for " << path << std::endl;
-            close(inotifyFd);
-            return;
-        }
-
-        std::cout << "Watching directory: " << path << std::endl;
+    FileSystemWatcher(boost::asio::io_context& io, const std::string& path)
+        : timer_(io), watch_path_(path), last_check_(fs::file_time_type::clock::now()) {
+        start_watching();
     }
 
-    void startMonitoring() {
-        char buffer[BUF_LEN];
-        while (true) {
-            int length = read(inotifyFd, buffer, BUF_LEN);
-            if (length < 0) {
-                std::cerr << "Error reading inotify events" << std::endl;
-                break;
-            }
+private:
+    void start_watching() {
+        timer_.expires_after(std::chrono::seconds(1));
+        timer_.async_wait(boost::bind(&FileSystemWatcher::check_changes, this,
+                                      boost::asio::placeholders::error));
+    }
 
-            int i = 0;
-            while (i < length) {
-                struct inotify_event* event = reinterpret_cast<struct inotify_event*>(&buffer[i]);
-                if (event->len) {
-                    if (event->mask & IN_CREATE) {
-                        std::cout << "File created: " << event->name << std::endl;
-                    } else if (event->mask & IN_DELETE) {
-                        std::cout << "File deleted: " << event->name << std::endl;
-                    } else if (event->mask & IN_MODIFY) {
-                        std::cout << "File modified: " << event->name << std::endl;
+    void check_changes(const boost::system::error_code& ec) {
+        if (ec) {
+            std::cerr << "Timer error: " << ec.message() << std::endl;
+            return;
+        }
+
+        try {
+            auto current_time = fs::file_time_type::clock::now();
+            for (const auto& entry : fs::recursive_directory_iterator(watch_path_)) {
+                if (fs::is_regular_file(entry.status())) {
+                    auto write_time = fs::last_write_time(entry.path());
+                    if (write_time > last_check_) {
+                        std::cout << "File modified: " << entry.path().string() << std::endl;
                     }
                 }
-                i += EVENT_SIZE + event->len;
             }
+            last_check_ = current_time;
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Filesystem error: " << e.what() << std::endl;
         }
+
+        start_watching();
     }
 
-    ~FileSystemWatcher() {
-        if (inotifyFd >= 0) {
-            inotify_rm_watch(inotifyFd, watchDescriptor);
-            close(inotifyFd);
-        }
-    }
+    boost::asio::steady_timer timer_;
+    std::string watch_path_;
+    fs::file_time_type last_check_;
 };
 
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
+    if (argc != 2) {
         std::cerr << "Usage: " << argv[0] << " <directory_path>" << std::endl;
         return 1;
     }
 
-    FileSystemWatcher watcher(argv[1]);
-    watcher.startMonitoring();
+    try {
+        boost::asio::io_context io;
+        FileSystemWatcher watcher(io, argv[1]);
+        io.run();
+    } catch (const std::exception& e) {
+        std::cerr << "Exception: " << e.what() << std::endl;
+        return 1;
+    }
 
     return 0;
 }
