@@ -1,77 +1,98 @@
+
 #include <iostream>
 #include <filesystem>
 #include <chrono>
 #include <thread>
-#include <unordered_set>
+#include <unordered_map>
+#include <functional>
+#include <atomic>
+#include <mutex>
 
 namespace fs = std::filesystem;
 
 class FileSystemWatcher {
-private:
-    fs::path path_to_watch;
-    std::unordered_set<std::string> current_files;
-    bool running = false;
-
-    std::unordered_set<std::string> getDirectoryContents() {
-        std::unordered_set<std::string> files;
-        if (fs::exists(path_to_watch) && fs::is_directory(path_to_watch)) {
-            for (const auto& entry : fs::directory_iterator(path_to_watch)) {
-                files.insert(entry.path().filename().string());
-            }
-        }
-        return files;
-    }
-
 public:
-    FileSystemWatcher(const std::string& path) : path_to_watch(path) {
-        current_files = getDirectoryContents();
-    }
+    using Callback = std::function<void(const fs::path&, const std::string&)>;
 
-    void startMonitoring(int interval_seconds = 2) {
-        running = true;
-        std::cout << "Starting to monitor: " << path_to_watch << std::endl;
+    FileSystemWatcher() : running_(false) {}
 
-        while (running) {
-            std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
-
-            auto new_files = getDirectoryContents();
-
-            // Check for added files
-            for (const auto& file : new_files) {
-                if (current_files.find(file) == current_files.end()) {
-                    std::cout << "[ADDED] " << file << std::endl;
-                }
-            }
-
-            // Check for removed files
-            for (const auto& file : current_files) {
-                if (new_files.find(file) == new_files.end()) {
-                    std::cout << "[REMOVED] " << file << std::endl;
-                }
-            }
-
-            current_files = new_files;
+    void addWatchPath(const fs::path& path, Callback callback) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (fs::exists(path)) {
+            watch_paths_[path] = {callback, fs::last_write_time(path)};
         }
     }
 
-    void stopMonitoring() {
-        running = false;
-        std::cout << "Stopped monitoring." << std::endl;
+    void removeWatchPath(const fs::path& path) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        watch_paths_.erase(path);
+    }
+
+    void start() {
+        running_ = true;
+        monitor_thread_ = std::thread(&FileSystemWatcher::monitorLoop, this);
+    }
+
+    void stop() {
+        running_ = false;
+        if (monitor_thread_.joinable()) {
+            monitor_thread_.join();
+        }
+    }
+
+    ~FileSystemWatcher() {
+        stop();
+    }
+
+private:
+    struct WatchInfo {
+        Callback callback;
+        fs::file_time_type last_write_time;
+    };
+
+    std::unordered_map<fs::path, WatchInfo> watch_paths_;
+    std::atomic<bool> running_;
+    std::thread monitor_thread_;
+    std::mutex mutex_;
+
+    void monitorLoop() {
+        while (running_) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+            std::lock_guard<std::mutex> lock(mutex_);
+            for (auto& [path, info] : watch_paths_) {
+                if (!fs::exists(path)) {
+                    info.callback(path, "deleted");
+                    continue;
+                }
+
+                auto current_time = fs::last_write_time(path);
+                if (current_time != info.last_write_time) {
+                    info.last_write_time = current_time;
+                    info.callback(path, "modified");
+                }
+            }
+        }
     }
 };
 
+void exampleCallback(const fs::path& path, const std::string& action) {
+    std::cout << "File " << path << " was " << action << " at "
+              << std::chrono::system_clock::now().time_since_epoch().count()
+              << " nanoseconds since epoch\n";
+}
+
 int main() {
-    std::string path = ".";
-    FileSystemWatcher watcher(path);
+    FileSystemWatcher watcher;
 
-    // Monitor for 10 seconds then stop
-    std::thread monitor_thread([&watcher]() {
-        watcher.startMonitoring(1);
-    });
+    watcher.addWatchPath("test_file.txt", exampleCallback);
+    watcher.addWatchPath("config.json", exampleCallback);
 
-    std::this_thread::sleep_for(std::chrono::seconds(10));
-    watcher.stopMonitoring();
-    monitor_thread.join();
+    watcher.start();
 
+    std::cout << "Watching files for changes. Press Enter to stop...\n";
+    std::cin.get();
+
+    watcher.stop();
     return 0;
 }
