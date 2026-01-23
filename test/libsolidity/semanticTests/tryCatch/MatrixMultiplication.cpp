@@ -55,3 +55,78 @@ int main() {
 
     return 0;
 }
+#include <iostream>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+
+std::vector<std::vector<int>> generateRandomMatrix(int rows, int cols) {
+    std::vector<std::vector<int>> matrix(rows, std::vector<int>(cols));
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            matrix[i][j] = rand() % 10;
+        }
+    }
+    return matrix;
+}
+
+std::vector<std::vector<int>> multiplyMatrices(const std::vector<std::vector<int>>& A,
+                                                const std::vector<std::vector<int>>& B) {
+    int rowsA = A.size();
+    int colsA = A[0].size();
+    int rowsB = B.size();
+    int colsB = B[0].size();
+
+    if (colsA != rowsB) {
+        throw std::invalid_argument("Matrix dimensions are not compatible for multiplication.");
+    }
+
+    std::vector<std::vector<int>> result(rowsA, std::vector<int>(colsB, 0));
+
+    for (int i = 0; i < rowsA; ++i) {
+        for (int j = 0; j < colsB; ++j) {
+            for (int k = 0; k < colsA; ++k) {
+                result[i][j] += A[i][k] * B[k][j];
+            }
+        }
+    }
+    return result;
+}
+
+void printMatrix(const std::vector<std::vector<int>>& matrix) {
+    for (const auto& row : matrix) {
+        for (int val : row) {
+            std::cout << val << " ";
+        }
+        std::cout << std::endl;
+    }
+}
+
+int main() {
+    srand(static_cast<unsigned>(time(nullptr)));
+
+    int rowsA = 3, colsA = 4;
+    int rowsB = 4, colsB = 2;
+
+    std::vector<std::vector<int>> matrixA = generateRandomMatrix(rowsA, colsA);
+    std::vector<std::vector<int>> matrixB = generateRandomMatrix(rowsB, colsB);
+
+    std::cout << "Matrix A (" << rowsA << "x" << colsA << "):" << std::endl;
+    printMatrix(matrixA);
+    std::cout << std::endl;
+
+    std::cout << "Matrix B (" << rowsB << "x" << colsB << "):" << std::endl;
+    printMatrix(matrixB);
+    std::cout << std::endl;
+
+    try {
+        std::vector<std::vector<int>> result = multiplyMatrices(matrixA, matrixB);
+        std::cout << "Result of A * B (" << rowsA << "x" << colsB << "):" << std::endl;
+        printMatrix(result);
+    } catch (const std::invalid_argument& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+
+    return 0;
+}
