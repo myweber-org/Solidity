@@ -1,111 +1,70 @@
+
 #include <iostream>
-#include <filesystem>
+#include <string>
 #include <chrono>
 #include <thread>
-#include <unordered_map>
-#include <functional>
-#include <atomic>
-#include <mutex>
+#include <filesystem>
+#include <boost/asio.hpp>
+#include <boost/bind/bind.hpp>
 
 namespace fs = std::filesystem;
 
 class FileSystemWatcher {
 public:
-    using Callback = std::function<void(const fs::path&, const std::string&)>;
-
-    FileSystemWatcher() : running_(false) {}
-
-    void addWatchPath(const fs::path& path, Callback callback) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (fs::exists(path) && fs::is_directory(path)) {
-            watch_paths_[path] = {callback, getCurrentFileState(path)};
+    FileSystemWatcher(boost::asio::io_context& io, const std::string& path, std::chrono::seconds interval)
+        : timer_(io), watch_path_(path), interval_(interval), last_write_time_() {
+        if (fs::exists(watch_path_)) {
+            last_write_time_ = fs::last_write_time(watch_path_);
         }
-    }
-
-    void start() {
-        running_ = true;
-        monitor_thread_ = std::thread(&FileSystemWatcher::monitorLoop, this);
-    }
-
-    void stop() {
-        running_ = false;
-        if (monitor_thread_.joinable()) {
-            monitor_thread_.join();
-        }
-    }
-
-    ~FileSystemWatcher() {
-        stop();
+        start_watching();
     }
 
 private:
-    struct WatchInfo {
-        Callback callback;
-        std::unordered_map<std::string, fs::file_time_type> file_states;
-    };
-
-    std::unordered_map<fs::path, WatchInfo> watch_paths_;
-    std::atomic<bool> running_;
-    std::thread monitor_thread_;
-    std::mutex mutex_;
-
-    std::unordered_map<std::string, fs::file_time_type> getCurrentFileState(const fs::path& directory) {
-        std::unordered_map<std::string, fs::file_time_type> states;
-        try {
-            for (const auto& entry : fs::recursive_directory_iterator(directory)) {
-                if (fs::is_regular_file(entry.path())) {
-                    states[entry.path().string()] = fs::last_write_time(entry.path());
-                }
-            }
-        } catch (const fs::filesystem_error& e) {
-            std::cerr << "Filesystem error: " << e.what() << std::endl;
-        }
-        return states;
+    void start_watching() {
+        timer_.expires_after(interval_);
+        timer_.async_wait(boost::bind(&FileSystemWatcher::check_file, this,
+                                      boost::asio::placeholders::error));
     }
 
-    void monitorLoop() {
-        while (running_) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            std::lock_guard<std::mutex> lock(mutex_);
-            
-            for (auto& [path, watch_info] : watch_paths_) {
-                auto current_states = getCurrentFileState(path);
-                auto& previous_states = watch_info.file_states;
-
-                for (const auto& [file_path, current_time] : current_states) {
-                    auto it = previous_states.find(file_path);
-                    if (it == previous_states.end()) {
-                        watch_info.callback(file_path, "CREATED");
-                    } else if (it->second != current_time) {
-                        watch_info.callback(file_path, "MODIFIED");
-                    }
-                }
-
-                for (const auto& [file_path, _] : previous_states) {
-                    if (current_states.find(file_path) == current_states.end()) {
-                        watch_info.callback(file_path, "DELETED");
-                    }
-                }
-
-                previous_states = std::move(current_states);
-            }
+    void check_file(const boost::system::error_code& ec) {
+        if (ec) {
+            std::cerr << "Timer error: " << ec.message() << std::endl;
+            return;
         }
+
+        if (fs::exists(watch_path_)) {
+            auto current_write_time = fs::last_write_time(watch_path_);
+            if (current_write_time != last_write_time_) {
+                std::cout << "File modified: " << watch_path_ << std::endl;
+                last_write_time_ = current_write_time;
+            }
+        } else {
+            std::cout << "File not found: " << watch_path_ << std::endl;
+        }
+
+        start_watching();
     }
+
+    boost::asio::steady_timer timer_;
+    std::string watch_path_;
+    std::chrono::seconds interval_;
+    fs::file_time_type last_write_time_;
 };
 
-int main() {
-    FileSystemWatcher watcher;
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <file_path>" << std::endl;
+        return 1;
+    }
 
-    watcher.addWatchPath("./test_directory", [](const fs::path& path, const std::string& action) {
-        std::cout << "File: " << path << " Action: " << action << std::endl;
-    });
-
-    std::cout << "Starting file system watcher. Monitoring ./test_directory" << std::endl;
-    std::cout << "Press Enter to stop..." << std::endl;
-
-    watcher.start();
-    std::cin.get();
-    watcher.stop();
+    try {
+        boost::asio::io_context io;
+        FileSystemWatcher watcher(io, argv[1], std::chrono::seconds(2));
+        io.run();
+    } catch (const std::exception& e) {
+        std::cerr << "Exception: " << e.what() << std::endl;
+        return 1;
+    }
 
     return 0;
 }
