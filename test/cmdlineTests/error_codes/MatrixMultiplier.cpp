@@ -187,3 +187,105 @@ int main() {
 
     return 0;
 }
+#include <iostream>
+#include <vector>
+#include <random>
+#include <chrono>
+#include <omp.h>
+
+class Matrix {
+private:
+    std::vector<std::vector<double>> data;
+    size_t rows;
+    size_t cols;
+
+public:
+    Matrix(size_t r, size_t c) : rows(r), cols(c) {
+        data.resize(rows, std::vector<double>(cols, 0.0));
+    }
+
+    void randomFill() {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_real_distribution<> dis(0.0, 10.0);
+
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rows; ++i) {
+            for (size_t j = 0; j < cols; ++j) {
+                data[i][j] = dis(gen);
+            }
+        }
+    }
+
+    Matrix multiply(const Matrix& other) const {
+        if (cols != other.rows) {
+            throw std::invalid_argument("Matrix dimensions mismatch for multiplication");
+        }
+
+        Matrix result(rows, other.cols);
+
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rows; ++i) {
+            for (size_t j = 0; j < other.cols; ++j) {
+                double sum = 0.0;
+                for (size_t k = 0; k < cols; ++k) {
+                    sum += data[i][k] * other.data[k][j];
+                }
+                result.data[i][j] = sum;
+            }
+        }
+
+        return result;
+    }
+
+    void display(size_t limit = 5) const {
+        size_t displayRows = std::min(rows, limit);
+        size_t displayCols = std::min(cols, limit);
+
+        for (size_t i = 0; i < displayRows; ++i) {
+            for (size_t j = 0; j < displayCols; ++j) {
+                std::cout << data[i][j] << " ";
+            }
+            if (displayCols < cols) {
+                std::cout << "...";
+            }
+            std::cout << std::endl;
+        }
+        if (displayRows < rows) {
+            std::cout << "..." << std::endl;
+        }
+    }
+};
+
+int main() {
+    const size_t N = 1000;
+    
+    std::cout << "Initializing matrices of size " << N << "x" << N << std::endl;
+    
+    Matrix A(N, N);
+    Matrix B(N, N);
+    
+    A.randomFill();
+    B.randomFill();
+    
+    std::cout << "Starting matrix multiplication..." << std::endl;
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    Matrix C = A.multiply(B);
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+    std::cout << "Multiplication completed in " << duration.count() << " ms" << std::endl;
+    
+    std::cout << "\nFirst 5x5 elements of matrix A:" << std::endl;
+    A.display();
+    
+    std::cout << "\nFirst 5x5 elements of matrix B:" << std::endl;
+    B.display();
+    
+    std::cout << "\nFirst 5x5 elements of result matrix C:" << std::endl;
+    C.display();
+    
+    return 0;
+}
