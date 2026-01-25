@@ -1,72 +1,68 @@
 
 #include <iostream>
-#include <filesystem>
+#include <string>
 #include <chrono>
 #include <thread>
-#include <unordered_set>
+#include <boost/asio.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/bind/bind.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
 
-namespace fs = std::filesystem;
+namespace fs = boost::filesystem;
+namespace asio = boost::asio;
 
 class FileSystemWatcher {
-private:
-    fs::path path_to_watch;
-    std::unordered_set<std::string> current_files;
-    bool running = false;
-
-    void populate_file_set() {
-        current_files.clear();
-        for (const auto& entry : fs::directory_iterator(path_to_watch)) {
-            current_files.insert(entry.path().filename().string());
-        }
-    }
-
 public:
-    FileSystemWatcher(const std::string& path) : path_to_watch(path) {
-        if (!fs::exists(path_to_watch) || !fs::is_directory(path_to_watch)) {
-            throw std::runtime_error("Invalid directory path provided.");
-        }
-        populate_file_set();
+    FileSystemWatcher(asio::io_service& io_service, const std::string& path)
+        : timer_(io_service), watch_path_(path), last_check_(fs::last_write_time(path)) {
+        start_watching();
     }
 
-    void start_watching(int interval_seconds = 2) {
-        running = true;
-        std::cout << "Watching directory: " << path_to_watch << std::endl;
+    void start_watching() {
+        timer_.expires_from_now(boost::posix_time::seconds(1));
+        timer_.async_wait(boost::bind(&FileSystemWatcher::check_file, this,
+                                      asio::placeholders::error));
+    }
 
-        while (running) {
-            std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
-
-            auto previous_files = current_files;
-            populate_file_set();
-
-            // Detect new files
-            for (const auto& filename : current_files) {
-                if (previous_files.find(filename) == previous_files.end()) {
-                    std::cout << "[+] New file detected: " << filename << std::endl;
+private:
+    void check_file(const boost::system::error_code& e) {
+        if (!e) {
+            try {
+                if (fs::exists(watch_path_)) {
+                    std::time_t current_time = fs::last_write_time(watch_path_);
+                    if (current_time != last_check_) {
+                        std::cout << "File modified: " << watch_path_ << std::endl;
+                        last_check_ = current_time;
+                    }
+                } else {
+                    std::cout << "File deleted: " << watch_path_ << std::endl;
                 }
+            } catch (const fs::filesystem_error& ex) {
+                std::cerr << "Filesystem error: " << ex.what() << std::endl;
             }
-
-            // Detect deleted files
-            for (const auto& filename : previous_files) {
-                if (current_files.find(filename) == current_files.end()) {
-                    std::cout << "[-] File deleted: " << filename << std::endl;
-                }
-            }
+            start_watching();
         }
     }
 
-    void stop_watching() {
-        running = false;
-        std::cout << "Stopped watching directory." << std::endl;
-    }
+    asio::deadline_timer timer_;
+    std::string watch_path_;
+    std::time_t last_check_;
 };
 
-int main() {
-    try {
-        FileSystemWatcher watcher(".");
-        watcher.start_watching();
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <file_path>" << std::endl;
         return 1;
     }
+
+    try {
+        asio::io_service io_service;
+        FileSystemWatcher watcher(io_service, argv[1]);
+        io_service.run();
+    } catch (const std::exception& e) {
+        std::cerr << "Exception: " << e.what() << std::endl;
+        return 1;
+    }
+
     return 0;
 }
