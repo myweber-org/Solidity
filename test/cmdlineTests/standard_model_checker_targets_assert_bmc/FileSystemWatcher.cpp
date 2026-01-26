@@ -75,3 +75,90 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+#include <filesystem>
+#include <chrono>
+#include <thread>
+#include <unordered_map>
+#include <string>
+#include <iostream>
+#include <functional>
+
+namespace fs = std::filesystem;
+
+class FileWatcher {
+public:
+    using FileChangeCallback = std::function<void(const fs::path&, const std::string&)>;
+
+    FileWatcher(const fs::path& directory, std::chrono::milliseconds interval)
+        : watch_directory(directory), poll_interval(interval), running(false) {}
+
+    void start(const FileChangeCallback& callback) {
+        if (!fs::exists(watch_directory) || !fs::is_directory(watch_directory)) {
+            std::cerr << "Directory does not exist or is not accessible: " << watch_directory << std::endl;
+            return;
+        }
+
+        running = true;
+        snapshot_files();
+
+        while (running) {
+            std::this_thread::sleep_for(poll_interval);
+            check_for_changes(callback);
+        }
+    }
+
+    void stop() {
+        running = false;
+    }
+
+private:
+    fs::path watch_directory;
+    std::chrono::milliseconds poll_interval;
+    bool running;
+    std::unordered_map<std::string, fs::file_time_type> file_snapshot;
+
+    void snapshot_files() {
+        file_snapshot.clear();
+        for (const auto& entry : fs::recursive_directory_iterator(watch_directory)) {
+            if (fs::is_regular_file(entry.status())) {
+                file_snapshot[entry.path().string()] = fs::last_write_time(entry);
+            }
+        }
+    }
+
+    void check_for_changes(const FileChangeCallback& callback) {
+        std::unordered_map<std::string, fs::file_time_type> current_state;
+
+        for (const auto& entry : fs::recursive_directory_iterator(watch_directory)) {
+            if (fs::is_regular_file(entry.status())) {
+                std::string path_str = entry.path().string();
+                current_state[path_str] = fs::last_write_time(entry);
+
+                auto it = file_snapshot.find(path_str);
+                if (it == file_snapshot.end()) {
+                    callback(entry.path(), "created");
+                } else if (it->second != current_state[path_str]) {
+                    callback(entry.path(), "modified");
+                }
+            }
+        }
+
+        for (const auto& [path, _] : file_snapshot) {
+            if (current_state.find(path) == current_state.end()) {
+                callback(fs::path(path), "deleted");
+            }
+        }
+
+        file_snapshot = std::move(current_state);
+    }
+};
+
+int main() {
+    FileWatcher watcher(fs::current_path(), std::chrono::seconds(2));
+
+    watcher.start([](const fs::path& path, const std::string& change_type) {
+        std::cout << "File " << path.filename() << " has been " << change_type << std::endl;
+    });
+
+    return 0;
+}
