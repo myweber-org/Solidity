@@ -1,63 +1,77 @@
-
 #include <iostream>
 #include <filesystem>
-#include <chrono>
-#include <iomanip>
 #include <string>
+#include <regex>
+#include <vector>
 
 namespace fs = std::filesystem;
 
-std::string getCurrentTimestamp() {
-    auto now = std::chrono::system_clock::now();
-    auto in_time_t = std::chrono::system_clock::to_time_t(now);
-    std::stringstream ss;
-    ss << std::put_time(std::localtime(&in_time_t), "%Y%m%d_%H%M%S");
-    return ss.str();
-}
+class FileRenamer {
+public:
+    static void renameFiles(const fs::path& directory,
+                            const std::string& pattern,
+                            const std::string& replacement) {
+        if (!fs::exists(directory) || !fs::is_directory(directory)) {
+            std::cerr << "Error: Invalid directory path.\n";
+            return;
+        }
 
-bool renameFileWithTimestamp(const fs::path& filePath) {
-    if (!fs::exists(filePath)) {
-        std::cerr << "Error: File does not exist." << std::endl;
-        return false;
+        std::regex regexPattern(pattern);
+        std::vector<std::pair<fs::path, fs::path>> renameOperations;
+
+        for (const auto& entry : fs::directory_iterator(directory)) {
+            if (entry.is_regular_file()) {
+                std::string oldName = entry.path().filename().string();
+                std::string newName = std::regex_replace(oldName, regexPattern, replacement);
+
+                if (oldName != newName && !newName.empty()) {
+                    fs::path newPath = entry.path().parent_path() / newName;
+                    renameOperations.emplace_back(entry.path(), newPath);
+                }
+            }
+        }
+
+        if (renameOperations.empty()) {
+            std::cout << "No files matched the rename criteria.\n";
+            return;
+        }
+
+        std::cout << "The following files will be renamed:\n";
+        for (const auto& op : renameOperations) {
+            std::cout << "  " << op.first.filename() << " -> " << op.second.filename() << '\n';
+        }
+
+        std::cout << "Proceed with rename? (y/n): ";
+        char confirm;
+        std::cin >> confirm;
+
+        if (confirm == 'y' || confirm == 'Y') {
+            for (const auto& op : renameOperations) {
+                try {
+                    fs::rename(op.first, op.second);
+                    std::cout << "Renamed: " << op.first.filename() << " -> " << op.second.filename() << '\n';
+                } catch (const fs::filesystem_error& e) {
+                    std::cerr << "Failed to rename " << op.first.filename() << ": " << e.what() << '\n';
+                }
+            }
+            std::cout << "Rename operation completed.\n";
+        } else {
+            std::cout << "Rename operation cancelled.\n";
+        }
     }
-
-    if (!fs::is_regular_file(filePath)) {
-        std::cerr << "Error: Path is not a regular file." << std::endl;
-        return false;
-    }
-
-    std::string timestamp = getCurrentTimestamp();
-    fs::path parentDir = filePath.parent_path();
-    std::string extension = filePath.extension().string();
-    std::string stem = filePath.stem().string();
-
-    fs::path newFilePath = parentDir / (timestamp + "_" + stem + extension);
-
-    if (fs::exists(newFilePath)) {
-        std::cerr << "Error: Target file already exists." << std::endl;
-        return false;
-    }
-
-    try {
-        fs::rename(filePath, newFilePath);
-        std::cout << "Renamed: " << filePath.filename() << " -> " << newFilePath.filename() << std::endl;
-        return true;
-    } catch (const fs::filesystem_error& e) {
-        std::cerr << "Error renaming file: " << e.what() << std::endl;
-        return false;
-    }
-}
+};
 
 int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <file_path>" << std::endl;
+    if (argc != 4) {
+        std::cerr << "Usage: " << argv[0] << " <directory> <regex_pattern> <replacement>\n";
+        std::cerr << "Example: " << argv[0] << " ./files \"(.*)\\.txt\" \"$1_backup.txt\"\n";
         return 1;
     }
 
-    fs::path targetFile(argv[1]);
-    if (!renameFileWithTimestamp(targetFile)) {
-        return 1;
-    }
+    fs::path dir(argv[1]);
+    std::string pattern(argv[2]);
+    std::string replacement(argv[3]);
 
+    FileRenamer::renameFiles(dir, pattern, replacement);
     return 0;
 }
