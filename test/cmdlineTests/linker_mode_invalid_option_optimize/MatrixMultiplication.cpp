@@ -5,70 +5,84 @@
 #include <ctime>
 #include <omp.h>
 
-std::vector<std::vector<double>> generate_random_matrix(int rows, int cols) {
-    std::vector<std::vector<double>> matrix(rows, std::vector<double>(cols));
+using namespace std;
+
+vector<vector<double>> generateRandomMatrix(int rows, int cols) {
+    vector<vector<double>> matrix(rows, vector<double>(cols));
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
-            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX * 100.0;
+            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX;
         }
     }
     return matrix;
 }
 
-std::vector<std::vector<double>> multiply_matrices_parallel(
-    const std::vector<std::vector<double>>& A,
-    const std::vector<std::vector<double>>& B) {
-
-    int rows_A = A.size();
-    int cols_A = A[0].size();
-    int cols_B = B[0].size();
-
-    std::vector<std::vector<double>> result(rows_A, std::vector<double>(cols_B, 0.0));
-
+vector<vector<double>> multiplyMatricesParallel(const vector<vector<double>>& A,
+                                                const vector<vector<double>>& B) {
+    int rowsA = A.size();
+    int colsA = A[0].size();
+    int colsB = B[0].size();
+    
+    vector<vector<double>> result(rowsA, vector<double>(colsB, 0.0));
+    
     #pragma omp parallel for collapse(2)
-    for (int i = 0; i < rows_A; ++i) {
-        for (int j = 0; j < cols_B; ++j) {
+    for (int i = 0; i < rowsA; ++i) {
+        for (int j = 0; j < colsB; ++j) {
             double sum = 0.0;
-            for (int k = 0; k < cols_A; ++k) {
+            for (int k = 0; k < colsA; ++k) {
                 sum += A[i][k] * B[k][j];
             }
             result[i][j] = sum;
         }
     }
-
+    
     return result;
 }
 
-void print_matrix_dimensions(const std::vector<std::vector<double>>& matrix, const std::string& name) {
-    std::cout << name << " dimensions: " << matrix.size() << " x " << matrix[0].size() << std::endl;
+void printMatrixStats(const vector<vector<double>>& matrix, const string& name) {
+    double sum = 0.0;
+    double minVal = matrix[0][0];
+    double maxVal = matrix[0][0];
+    
+    for (const auto& row : matrix) {
+        for (double val : row) {
+            sum += val;
+            if (val < minVal) minVal = val;
+            if (val > maxVal) maxVal = val;
+        }
+    }
+    
+    cout << name << " - Size: " << matrix.size() << "x" << matrix[0].size();
+    cout << ", Sum: " << sum;
+    cout << ", Min: " << minVal;
+    cout << ", Max: " << maxVal << endl;
 }
 
 int main() {
     srand(static_cast<unsigned>(time(nullptr)));
-
+    
     const int N = 500;
     const int M = 500;
     const int P = 500;
-
-    std::cout << "Generating random matrices..." << std::endl;
-    auto matrix_A = generate_random_matrix(N, M);
-    auto matrix_B = generate_random_matrix(M, P);
-
-    print_matrix_dimensions(matrix_A, "Matrix A");
-    print_matrix_dimensions(matrix_B, "Matrix B");
-
-    std::cout << "Performing parallel matrix multiplication..." << std::endl;
-    double start_time = omp_get_wtime();
-
-    auto result_matrix = multiply_matrices_parallel(matrix_A, matrix_B);
-
-    double end_time = omp_get_wtime();
-    double elapsed_time = end_time - start_time;
-
-    print_matrix_dimensions(result_matrix, "Result matrix");
-    std::cout << "Computation time: " << elapsed_time << " seconds" << std::endl;
-
-    std::cout << "Sample element from result: " << result_matrix[0][0] << std::endl;
-
+    
+    cout << "Generating matrices..." << endl;
+    auto matrixA = generateRandomMatrix(N, M);
+    auto matrixB = generateRandomMatrix(M, P);
+    
+    printMatrixStats(matrixA, "Matrix A");
+    printMatrixStats(matrixB, "Matrix B");
+    
+    cout << "\nPerforming parallel matrix multiplication..." << endl;
+    double startTime = omp_get_wtime();
+    
+    auto result = multiplyMatricesParallel(matrixA, matrixB);
+    
+    double endTime = omp_get_wtime();
+    double executionTime = endTime - startTime;
+    
+    printMatrixStats(result, "Result Matrix");
+    cout << "\nExecution time: " << executionTime << " seconds" << endl;
+    cout << "Performance: " << (2.0 * N * M * P) / (executionTime * 1e9) << " GFLOPS" << endl;
+    
     return 0;
 }
