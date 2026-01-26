@@ -63,4 +63,58 @@ int main(int argc, char* argv[]) {
     FileRenamer::renameFilesInDirectory(directory, prefix, startNumber, extension);
 
     return 0;
+}#include <iostream>
+#include <filesystem>
+#include <string>
+#include <iomanip>
+#include <vector>
+#include <algorithm>
+
+namespace fs = std::filesystem;
+
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <directory_path>\n";
+        return 1;
+    }
+
+    fs::path dir_path(argv[1]);
+
+    if (!fs::exists(dir_path) || !fs::is_directory(dir_path)) {
+        std::cerr << "Error: Invalid directory path.\n";
+        return 1;
+    }
+
+    std::vector<fs::directory_entry> entries;
+    for (const auto& entry : fs::directory_iterator(dir_path)) {
+        if (fs::is_regular_file(entry.status())) {
+            entries.push_back(entry);
+        }
+    }
+
+    std::sort(entries.begin(), entries.end(),
+              [](const fs::directory_entry& a, const fs::directory_entry& b) {
+                  return a.path().filename().string() < b.path().filename().string();
+              });
+
+    int counter = 1;
+    for (const auto& entry : entries) {
+        fs::path old_path = entry.path();
+        std::string extension = old_path.extension().string();
+
+        std::ostringstream new_filename;
+        new_filename << std::setw(4) << std::setfill('0') << counter << extension;
+        fs::path new_path = old_path.parent_path() / new_filename.str();
+
+        try {
+            fs::rename(old_path, new_path);
+            std::cout << "Renamed: " << old_path.filename() << " -> " << new_path.filename() << '\n';
+            ++counter;
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Error renaming " << old_path.filename() << ": " << e.what() << '\n';
+        }
+    }
+
+    std::cout << "File renaming completed.\n";
+    return 0;
 }
