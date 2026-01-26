@@ -122,3 +122,75 @@ int main() {
     exampleUsage();
     return 0;
 }
+#include <iostream>
+#include <filesystem>
+#include <chrono>
+#include <thread>
+#include <unordered_set>
+
+namespace fs = std::filesystem;
+
+class FileSystemWatcher {
+public:
+    FileSystemWatcher(const fs::path& path_to_watch) : path_to_watch_(path_to_watch) {
+        for (const auto& entry : fs::recursive_directory_iterator(path_to_watch_)) {
+            if (fs::is_regular_file(entry.path())) {
+                known_files_.insert(fs::canonical(entry.path()));
+            }
+        }
+    }
+
+    void startMonitoring(int interval_seconds = 1) {
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
+            checkForChanges();
+        }
+    }
+
+private:
+    void checkForChanges() {
+        std::unordered_set<std::string> current_files;
+
+        for (const auto& entry : fs::recursive_directory_iterator(path_to_watch_)) {
+            if (fs::is_regular_file(entry.path())) {
+                current_files.insert(fs::canonical(entry.path()));
+            }
+        }
+
+        for (const auto& file : current_files) {
+            if (known_files_.find(file) == known_files_.end()) {
+                std::cout << "File added: " << file << std::endl;
+            }
+        }
+
+        for (const auto& file : known_files_) {
+            if (current_files.find(file) == current_files.end()) {
+                std::cout << "File removed: " << file << std::endl;
+            }
+        }
+
+        known_files_ = std::move(current_files);
+    }
+
+    fs::path path_to_watch_;
+    std::unordered_set<std::string> known_files_;
+};
+
+int main() {
+    std::string path;
+    std::cout << "Enter directory path to monitor: ";
+    std::getline(std::cin, path);
+
+    if (!fs::exists(path) || !fs::is_directory(path)) {
+        std::cerr << "Invalid directory path." << std::endl;
+        return 1;
+    }
+
+    FileSystemWatcher watcher(path);
+    std::cout << "Monitoring directory: " << fs::canonical(path) << std::endl;
+    std::cout << "Press Ctrl+C to stop." << std::endl;
+
+    watcher.startMonitoring();
+
+    return 0;
+}
