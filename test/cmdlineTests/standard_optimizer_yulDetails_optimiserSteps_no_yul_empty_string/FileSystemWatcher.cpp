@@ -10,46 +10,55 @@ class FileSystemWatcher {
 private:
     fs::path path_to_watch;
     std::unordered_set<std::string> current_files;
+    bool running = false;
 
-    std::unordered_set<std::string> get_files_in_directory() {
+    std::unordered_set<std::string> get_directory_contents() {
         std::unordered_set<std::string> files;
-        for (const auto& entry : fs::directory_iterator(path_to_watch)) {
-            if (fs::is_regular_file(entry.status())) {
+        if (fs::exists(path_to_watch) && fs::is_directory(path_to_watch)) {
+            for (const auto& entry : fs::directory_iterator(path_to_watch)) {
                 files.insert(entry.path().filename().string());
             }
         }
         return files;
     }
 
-public:
-    FileSystemWatcher(const std::string& path) : path_to_watch(path) {
-        if (!fs::exists(path_to_watch) || !fs::is_directory(path_to_watch)) {
-            throw std::invalid_argument("Provided path is not a valid directory.");
+    void compare_and_log(const std::unordered_set<std::string>& old_files,
+                         const std::unordered_set<std::string>& new_files) {
+        for (const auto& file : new_files) {
+            if (old_files.find(file) == old_files.end()) {
+                std::cout << "[+] File added: " << file << std::endl;
+            }
         }
-        current_files = get_files_in_directory();
-        std::cout << "Watching directory: " << fs::absolute(path_to_watch) << std::endl;
+        for (const auto& file : old_files) {
+            if (new_files.find(file) == new_files.end()) {
+                std::cout << "[-] File removed: " << file << std::endl;
+            }
+        }
     }
 
-    void start_monitoring(int interval_seconds = 2) {
-        std::cout << "Monitoring started. Press Ctrl+C to stop." << std::endl;
-        while (true) {
+public:
+    explicit FileSystemWatcher(const std::string& path) : path_to_watch(path) {
+        if (!fs::exists(path_to_watch)) {
+            throw std::runtime_error("Path does not exist: " + path);
+        }
+        current_files = get_directory_contents();
+    }
+
+    void start_watching(int interval_seconds = 2) {
+        running = true;
+        std::cout << "Watching directory: " << path_to_watch << std::endl;
+        std::cout << "Press Ctrl+C to stop." << std::endl;
+
+        while (running) {
             std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
-            auto new_files = get_files_in_directory();
-
-            for (const auto& file : new_files) {
-                if (current_files.find(file) == current_files.end()) {
-                    std::cout << "[+] File added: " << file << std::endl;
-                }
-            }
-
-            for (const auto& file : current_files) {
-                if (new_files.find(file) == new_files.end()) {
-                    std::cout << "[-] File removed: " << file << std::endl;
-                }
-            }
-
+            auto new_files = get_directory_contents();
+            compare_and_log(current_files, new_files);
             current_files = new_files;
         }
+    }
+
+    void stop_watching() {
+        running = false;
     }
 };
 
@@ -61,7 +70,7 @@ int main(int argc, char* argv[]) {
 
     try {
         FileSystemWatcher watcher(argv[1]);
-        watcher.start_monitoring();
+        watcher.start_watching();
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
