@@ -6,6 +6,7 @@ std::vector<std::vector<int>> transposeMatrix(const std::vector<std::vector<int>
 
     size_t rows = matrix.size();
     size_t cols = matrix[0].size();
+
     std::vector<std::vector<int>> result(cols, std::vector<int>(rows));
 
     for (size_t i = 0; i < rows; ++i) {
@@ -22,7 +23,7 @@ void printMatrix(const std::vector<std::vector<int>>& matrix) {
         for (int val : row) {
             std::cout << val << " ";
         }
-        std::cout << "\n";
+        std::cout << std::endl;
     }
 }
 
@@ -33,12 +34,12 @@ int main() {
         {7, 8, 9}
     };
 
-    std::cout << "Original matrix:\n";
+    std::cout << "Original matrix:" << std::endl;
     printMatrix(original);
 
     std::vector<std::vector<int>> transposed = transposeMatrix(original);
 
-    std::cout << "\nTransposed matrix:\n";
+    std::cout << "\nTransposed matrix:" << std::endl;
     printMatrix(transposed);
 
     return 0;
