@@ -64,3 +64,68 @@ int main() {
     
     return 0;
 }
+#include <iostream>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+
+std::vector<std::vector<double>> generateRandomMatrix(int rows, int cols) {
+    std::vector<std::vector<double>> matrix(rows, std::vector<double>(cols));
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX * 10.0;
+        }
+    }
+    return matrix;
+}
+
+std::vector<std::vector<double>> multiplyMatrices(const std::vector<std::vector<double>>& A,
+                                                  const std::vector<std::vector<double>>& B) {
+    int rowsA = A.size();
+    int colsA = A[0].size();
+    int colsB = B[0].size();
+
+    std::vector<std::vector<double>> result(rowsA, std::vector<double>(colsB, 0.0));
+
+    for (int i = 0; i < rowsA; ++i) {
+        for (int j = 0; j < colsB; ++j) {
+            for (int k = 0; k < colsA; ++k) {
+                result[i][j] += A[i][k] * B[k][j];
+            }
+        }
+    }
+    return result;
+}
+
+void printMatrix(const std::vector<std::vector<double>>& matrix) {
+    for (const auto& row : matrix) {
+        for (double val : row) {
+            std::cout << val << "\t";
+        }
+        std::cout << std::endl;
+    }
+}
+
+int main() {
+    srand(static_cast<unsigned>(time(nullptr)));
+
+    int m = 3, n = 4, p = 2;
+
+    std::vector<std::vector<double>> matrixA = generateRandomMatrix(m, n);
+    std::vector<std::vector<double>> matrixB = generateRandomMatrix(n, p);
+
+    std::cout << "Matrix A (" << m << "x" << n << "):" << std::endl;
+    printMatrix(matrixA);
+    std::cout << std::endl;
+
+    std::cout << "Matrix B (" << n << "x" << p << "):" << std::endl;
+    printMatrix(matrixB);
+    std::cout << std::endl;
+
+    std::vector<std::vector<double>> result = multiplyMatrices(matrixA, matrixB);
+
+    std::cout << "Result of A * B (" << m << "x" << p << "):" << std::endl;
+    printMatrix(result);
+
+    return 0;
+}
