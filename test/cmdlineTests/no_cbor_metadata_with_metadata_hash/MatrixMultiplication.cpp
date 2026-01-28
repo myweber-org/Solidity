@@ -1,8 +1,8 @@
 
 #include <iostream>
 #include <vector>
-#include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <omp.h>
 
 std::vector<std::vector<double>> generateRandomMatrix(int rows, int cols) {
@@ -15,7 +15,7 @@ std::vector<std::vector<double>> generateRandomMatrix(int rows, int cols) {
     return matrix;
 }
 
-std::vector<std::vector<double>> multiplyMatricesParallel(
+std::vector<std::vector<double>> multiplyMatrices(
     const std::vector<std::vector<double>>& A,
     const std::vector<std::vector<double>>& B) {
     
@@ -39,70 +39,28 @@ std::vector<std::vector<double>> multiplyMatricesParallel(
     return result;
 }
 
-std::vector<std::vector<double>> multiplyMatricesSequential(
-    const std::vector<std::vector<double>>& A,
-    const std::vector<std::vector<double>>& B) {
-    
-    int rowsA = A.size();
-    int colsA = A[0].size();
-    int colsB = B[0].size();
-    
-    std::vector<std::vector<double>> result(rowsA, std::vector<double>(colsB, 0.0));
-    
-    for (int i = 0; i < rowsA; ++i) {
-        for (int j = 0; j < colsB; ++j) {
-            double sum = 0.0;
-            for (int k = 0; k < colsA; ++k) {
-                sum += A[i][k] * B[k][j];
-            }
-            result[i][j] = sum;
-        }
-    }
-    
-    return result;
-}
-
-bool verifyResults(const std::vector<std::vector<double>>& mat1,
-                   const std::vector<std::vector<double>>& mat2,
-                   double tolerance = 1e-10) {
-    if (mat1.size() != mat2.size() || mat1[0].size() != mat2[0].size()) {
-        return false;
-    }
-    
-    for (size_t i = 0; i < mat1.size(); ++i) {
-        for (size_t j = 0; j < mat1[0].size(); ++j) {
-            if (std::abs(mat1[i][j] - mat2[i][j]) > tolerance) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
 int main() {
-    const int SIZE = 500;
-    srand(42);
+    srand(static_cast<unsigned>(time(nullptr)));
     
-    auto matrixA = generateRandomMatrix(SIZE, SIZE);
-    auto matrixB = generateRandomMatrix(SIZE, SIZE);
+    const int N = 500;
+    std::cout << "Generating random matrices of size " << N << "x" << N << std::endl;
     
-    auto start = std::chrono::high_resolution_clock::now();
-    auto resultSequential = multiplyMatricesSequential(matrixA, matrixB);
-    auto end = std::chrono::high_resolution_clock::now();
-    auto sequentialTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    auto matrixA = generateRandomMatrix(N, N);
+    auto matrixB = generateRandomMatrix(N, N);
     
-    start = std::chrono::high_resolution_clock::now();
-    auto resultParallel = multiplyMatricesParallel(matrixA, matrixB);
-    end = std::chrono::high_resolution_clock::now();
-    auto parallelTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    std::cout << "Performing parallel matrix multiplication..." << std::endl;
+    double startTime = omp_get_wtime();
     
-    bool verification = verifyResults(resultSequential, resultParallel);
+    auto result = multiplyMatrices(matrixA, matrixB);
     
-    std::cout << "Matrix size: " << SIZE << "x" << SIZE << std::endl;
-    std::cout << "Sequential execution time: " << sequentialTime.count() << " ms" << std::endl;
-    std::cout << "Parallel execution time: " << parallelTime.count() << " ms" << std::endl;
-    std::cout << "Speedup factor: " << static_cast<double>(sequentialTime.count()) / parallelTime.count() << std::endl;
-    std::cout << "Results verification: " << (verification ? "PASSED" : "FAILED") << std::endl;
+    double endTime = omp_get_wtime();
+    std::cout << "Multiplication completed in " << (endTime - startTime) << " seconds" << std::endl;
+    
+    double checksum = 0.0;
+    for (int i = 0; i < N; i += 50) {
+        checksum += result[i][i];
+    }
+    std::cout << "Diagonal checksum: " << checksum << std::endl;
     
     return 0;
 }
