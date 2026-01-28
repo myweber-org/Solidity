@@ -5,141 +5,71 @@
 #include <ctime>
 #include <omp.h>
 
-std::vector<std::vector<double>> generate_random_matrix(int rows, int cols) {
-    std::vector<std::vector<double>> matrix(rows, std::vector<double>(cols));
-    for (int i = 0; i < rows; ++i) {
-        for (int j = 0; j < cols; ++j) {
-            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX;
-        }
-    }
-    return matrix;
-}
+class ParallelMatrixMultiplier {
+public:
+    static std::vector<std::vector<double>> multiply(const std::vector<std::vector<double>>& A,
+                                                     const std::vector<std::vector<double>>& B) {
+        size_t rowsA = A.size();
+        size_t colsA = A[0].size();
+        size_t colsB = B[0].size();
 
-std::vector<std::vector<double>> multiply_matrices_parallel(
-    const std::vector<std::vector<double>>& A,
-    const std::vector<std::vector<double>>& B) {
-    
-    int rows_A = A.size();
-    int cols_A = A[0].size();
-    int cols_B = B[0].size();
-    
-    std::vector<std::vector<double>> result(rows_A, std::vector<double>(cols_B, 0.0));
-    
-    #pragma omp parallel for collapse(2)
-    for (int i = 0; i < rows_A; ++i) {
-        for (int j = 0; j < cols_B; ++j) {
-            double sum = 0.0;
-            for (int k = 0; k < cols_A; ++k) {
-                sum += A[i][k] * B[k][j];
+        if (colsA != B.size()) {
+            throw std::invalid_argument("Matrix dimensions incompatible for multiplication");
+        }
+
+        std::vector<std::vector<double>> result(rowsA, std::vector<double>(colsB, 0.0));
+
+        #pragma omp parallel for collapse(2) schedule(dynamic)
+        for (size_t i = 0; i < rowsA; ++i) {
+            for (size_t j = 0; j < colsB; ++j) {
+                double sum = 0.0;
+                for (size_t k = 0; k < colsA; ++k) {
+                    sum += A[i][k] * B[k][j];
+                }
+                result[i][j] = sum;
             }
-            result[i][j] = sum;
+        }
+
+        return result;
+    }
+
+    static void initializeRandomMatrix(std::vector<std::vector<double>>& matrix) {
+        std::srand(static_cast<unsigned>(std::time(nullptr)));
+        for (auto& row : matrix) {
+            for (auto& element : row) {
+                element = static_cast<double>(std::rand()) / RAND_MAX * 100.0;
+            }
         }
     }
-    
-    return result;
-}
+
+    static void printMatrix(const std::vector<std::vector<double>>& matrix) {
+        for (const auto& row : matrix) {
+            for (const auto& element : row) {
+                std::cout << element << "\t";
+            }
+            std::cout << std::endl;
+        }
+    }
+};
 
 int main() {
-    srand(static_cast<unsigned>(time(nullptr)));
-    
-    const int N = 500;
-    
-    std::vector<std::vector<double>> matrix_A = generate_random_matrix(N, N);
-    std::vector<std::vector<double>> matrix_B = generate_random_matrix(N, N);
-    
-    double start_time = omp_get_wtime();
-    std::vector<std::vector<double>> result = multiply_matrices_parallel(matrix_A, matrix_B);
-    double end_time = omp_get_wtime();
-    
-    std::cout << "Matrix multiplication of " << N << "x" << N << " matrices completed." << std::endl;
-    std::cout << "Execution time: " << (end_time - start_time) << " seconds" << std::endl;
-    
-    return 0;
-}
-#include <iostream>
-#include <vector>
-#include <cstdlib>
-#include <ctime>
-#include <omp.h>
+    const size_t N = 512;
+    const size_t M = 512;
+    const size_t P = 512;
 
-using namespace std;
+    std::vector<std::vector<double>> matrixA(N, std::vector<double>(M));
+    std::vector<std::vector<double>> matrixB(M, std::vector<double>(P));
 
-vector<vector<double>> generateRandomMatrix(int rows, int cols) {
-    vector<vector<double>> matrix(rows, vector<double>(cols));
-    for (int i = 0; i < rows; ++i) {
-        for (int j = 0; j < cols; ++j) {
-            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX;
-        }
-    }
-    return matrix;
-}
+    ParallelMatrixMultiplier::initializeRandomMatrix(matrixA);
+    ParallelMatrixMultiplier::initializeRandomMatrix(matrixB);
 
-vector<vector<double>> multiplyMatricesParallel(const vector<vector<double>>& A,
-                                                const vector<vector<double>>& B) {
-    int rowsA = A.size();
-    int colsA = A[0].size();
-    int colsB = B[0].size();
-    
-    vector<vector<double>> result(rowsA, vector<double>(colsB, 0.0));
-    
-    #pragma omp parallel for collapse(2)
-    for (int i = 0; i < rowsA; ++i) {
-        for (int j = 0; j < colsB; ++j) {
-            double sum = 0.0;
-            for (int k = 0; k < colsA; ++k) {
-                sum += A[i][k] * B[k][j];
-            }
-            result[i][j] = sum;
-        }
-    }
-    
-    return result;
-}
-
-void printMatrixStats(const vector<vector<double>>& matrix, const string& name) {
-    double sum = 0.0;
-    double minVal = matrix[0][0];
-    double maxVal = matrix[0][0];
-    
-    for (const auto& row : matrix) {
-        for (double val : row) {
-            sum += val;
-            if (val < minVal) minVal = val;
-            if (val > maxVal) maxVal = val;
-        }
-    }
-    
-    cout << name << " - Size: " << matrix.size() << "x" << matrix[0].size()
-         << ", Sum: " << sum
-         << ", Min: " << minVal
-         << ", Max: " << maxVal << endl;
-}
-
-int main() {
-    srand(static_cast<unsigned>(time(nullptr)));
-    
-    const int N = 500;
-    const int M = 500;
-    const int P = 500;
-    
-    cout << "Generating random matrices..." << endl;
-    auto matrixA = generateRandomMatrix(N, M);
-    auto matrixB = generateRandomMatrix(M, P);
-    
-    printMatrixStats(matrixA, "Matrix A");
-    printMatrixStats(matrixB, "Matrix B");
-    
-    cout << "Performing parallel matrix multiplication..." << endl;
     double startTime = omp_get_wtime();
-    
-    auto result = multiplyMatricesParallel(matrixA, matrixB);
-    
+    std::vector<std::vector<double>> result = ParallelMatrixMultiplier::multiply(matrixA, matrixB);
     double endTime = omp_get_wtime();
-    double executionTime = endTime - startTime;
-    
-    printMatrixStats(result, "Result Matrix");
-    cout << "Execution time: " << executionTime << " seconds" << endl;
-    cout << "Performance: " << (2.0 * N * M * P) / (executionTime * 1e9) << " GFLOPS" << endl;
-    
+
+    std::cout << "Matrix multiplication completed." << std::endl;
+    std::cout << "Execution time: " << (endTime - startTime) << " seconds" << std::endl;
+    std::cout << "Matrix dimensions: " << N << "x" << M << " * " << M << "x" << P << " = " << N << "x" << P << std::endl;
+
     return 0;
 }
