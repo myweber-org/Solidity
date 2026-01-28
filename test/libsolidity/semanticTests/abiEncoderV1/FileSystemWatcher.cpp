@@ -124,3 +124,127 @@ int main() {
 
     return 0;
 }
+#include <iostream>
+#include <chrono>
+#include <thread>
+#include <filesystem>
+#include <boost/asio.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/bind/bind.hpp>
+#include <unordered_set>
+
+namespace fs = boost::filesystem;
+namespace asio = boost::asio;
+
+class FileSystemWatcher {
+public:
+    FileSystemWatcher(asio::io_context& io, const std::string& path)
+        : timer_(io), watch_path_(path), running_(false) {
+        if (fs::exists(watch_path_) && fs::is_directory(watch_path_)) {
+            snapshot_ = takeSnapshot();
+        }
+    }
+
+    void start() {
+        running_ = true;
+        scheduleNextCheck();
+    }
+
+    void stop() {
+        running_ = false;
+        timer_.cancel();
+    }
+
+    void setChangeCallback(std::function<void(const std::string&, const std::string&)> callback) {
+        change_callback_ = callback;
+    }
+
+private:
+    using FileSnapshot = std::unordered_set<std::string>;
+
+    FileSnapshot takeSnapshot() {
+        FileSnapshot snapshot;
+        if (!fs::exists(watch_path_)) return snapshot;
+
+        for (const auto& entry : fs::recursive_directory_iterator(watch_path_)) {
+            if (fs::is_regular_file(entry.path())) {
+                std::string file_path = entry.path().string();
+                std::time_t last_write = fs::last_write_time(entry.path());
+                std::string key = file_path + "|" + std::to_string(last_write);
+                snapshot.insert(key);
+            }
+        }
+        return snapshot;
+    }
+
+    void checkForChanges() {
+        if (!running_) return;
+
+        FileSnapshot current = takeSnapshot();
+        FileSnapshot previous = std::move(snapshot_);
+        snapshot_ = current;
+
+        for (const auto& item : current) {
+            if (previous.find(item) == previous.end()) {
+                size_t sep_pos = item.find('|');
+                std::string file_path = item.substr(0, sep_pos);
+                if (change_callback_) {
+                    change_callback_(file_path, "created_or_modified");
+                }
+            }
+        }
+
+        for (const auto& item : previous) {
+            if (current.find(item) == current.end()) {
+                size_t sep_pos = item.find('|');
+                std::string file_path = item.substr(0, sep_pos);
+                if (change_callback_) {
+                    change_callback_(file_path, "deleted");
+                }
+            }
+        }
+
+        scheduleNextCheck();
+    }
+
+    void scheduleNextCheck() {
+        timer_.expires_after(std::chrono::seconds(2));
+        timer_.async_wait([this](const boost::system::error_code& ec) {
+            if (!ec) {
+                checkForChanges();
+            }
+        });
+    }
+
+    asio::steady_timer timer_;
+    std::string watch_path_;
+    FileSnapshot snapshot_;
+    bool running_;
+    std::function<void(const std::string&, const std::string&)> change_callback_;
+};
+
+int main() {
+    try {
+        asio::io_context io;
+        std::string path_to_watch = ".";
+        
+        FileSystemWatcher watcher(io, path_to_watch);
+        
+        watcher.setChangeCallback([](const std::string& file_path, const std::string& change_type) {
+            std::cout << "File " << file_path << " has been " << change_type << std::endl;
+        });
+        
+        watcher.start();
+        
+        std::cout << "Watching directory: " << fs::absolute(path_to_watch).string() << std::endl;
+        std::cout << "Press Ctrl+C to stop..." << std::endl;
+        
+        io.run();
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+    
+    return 0;
+}
