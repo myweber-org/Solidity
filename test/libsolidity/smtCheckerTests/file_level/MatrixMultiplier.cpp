@@ -116,3 +116,94 @@ int main() {
     
     return 0;
 }
+#include <iostream>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <omp.h>
+
+class ParallelMatrixMultiplier {
+private:
+    std::vector<std::vector<double>> matrixA;
+    std::vector<std::vector<double>> matrixB;
+    std::vector<std::vector<double>> result;
+    int size;
+
+public:
+    ParallelMatrixMultiplier(int n) : size(n) {
+        matrixA.resize(n, std::vector<double>(n));
+        matrixB.resize(n, std::vector<double>(n));
+        result.resize(n, std::vector<double>(n, 0.0));
+        initializeMatrices();
+    }
+
+    void initializeMatrices() {
+        srand(static_cast<unsigned>(time(nullptr)));
+        #pragma omp parallel for collapse(2)
+        for (int i = 0; i < size; ++i) {
+            for (int j = 0; j < size; ++j) {
+                matrixA[i][j] = static_cast<double>(rand()) / RAND_MAX;
+                matrixB[i][j] = static_cast<double>(rand()) / RAND_MAX;
+            }
+        }
+    }
+
+    void multiply() {
+        #pragma omp parallel for collapse(2)
+        for (int i = 0; i < size; ++i) {
+            for (int j = 0; j < size; ++j) {
+                double sum = 0.0;
+                for (int k = 0; k < size; ++k) {
+                    sum += matrixA[i][k] * matrixB[k][j];
+                }
+                result[i][j] = sum;
+            }
+        }
+    }
+
+    void displayResult(int limit = 5) {
+        std::cout << "First " << limit << "x" << limit << " elements of result matrix:\n";
+        for (int i = 0; i < std::min(limit, size); ++i) {
+            for (int j = 0; j < std::min(limit, size); ++j) {
+                std::cout << result[i][j] << " ";
+            }
+            std::cout << "\n";
+        }
+    }
+
+    double verifyMultiplication() {
+        double checksum = 0.0;
+        for (int i = 0; i < size; ++i) {
+            for (int j = 0; j < size; ++j) {
+                checksum += result[i][j];
+            }
+        }
+        return checksum;
+    }
+};
+
+int main() {
+    const int MATRIX_SIZE = 500;
+    
+    std::cout << "Initializing parallel matrix multiplier with size " << MATRIX_SIZE << "x" << MATRIX_SIZE << "\n";
+    
+    double startTime = omp_get_wtime();
+    ParallelMatrixMultiplier multiplier(MATRIX_SIZE);
+    double initTime = omp_get_wtime() - startTime;
+    
+    std::cout << "Matrix initialization completed in " << initTime << " seconds\n";
+    
+    startTime = omp_get_wtime();
+    multiplier.multiply();
+    double multiplyTime = omp_get_wtime() - startTime;
+    
+    std::cout << "Matrix multiplication completed in " << multiplyTime << " seconds\n";
+    std::cout << "Performance: " << (2.0 * MATRIX_SIZE * MATRIX_SIZE * MATRIX_SIZE) / (multiplyTime * 1e9) << " GFLOPS\n";
+    
+    multiplier.displayResult();
+    
+    double checksum = multiplier.verifyMultiplication();
+    std::cout << "Result matrix checksum: " << checksum << "\n";
+    
+    return 0;
+}
