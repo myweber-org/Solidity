@@ -1,109 +1,97 @@
-#include <fstream>
-#include <string>
-#include <chrono>
-#include <filesystem>
-#include <sstream>
-#include <iomanip>
 
-namespace fs = std::filesystem;
+#include <fstream>
+#include <mutex>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
+#include <string>
+
+enum class LogLevel {
+    DEBUG,
+    INFO,
+    WARNING,
+    ERROR
+};
 
 class FileLogger {
 private:
-    std::string base_filename;
-    std::string log_directory;
-    size_t max_file_size;
-    int max_backup_files;
-    std::ofstream current_stream;
-    size_t current_size;
+    std::ofstream logFile;
+    std::mutex logMutex;
+    LogLevel currentLevel;
 
-    std::string generate_timestamp() {
+    std::string getCurrentTimestamp() {
         auto now = std::chrono::system_clock::now();
-        auto time_t_now = std::chrono::system_clock::to_time_t(now);
+        auto time = std::chrono::system_clock::to_time_t(now);
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()) % 1000;
+
         std::stringstream ss;
-        ss << std::put_time(std::localtime(&time_t_now), "%Y%m%d_%H%M%S");
+        ss << std::put_time(std::localtime(&time), "%Y-%m-%d %H:%M:%S");
+        ss << '.' << std::setfill('0') << std::setw(3) << ms.count();
         return ss.str();
     }
 
-    void rotate_if_needed() {
-        if (current_size >= max_file_size) {
-            current_stream.close();
-            std::string timestamp = generate_timestamp();
-            std::string new_name = log_directory + "/" + base_filename + "_" + timestamp + ".log";
-            fs::rename(log_directory + "/" + base_filename + ".log", new_name);
-
-            cleanup_old_files();
-            open_current_log();
+    std::string levelToString(LogLevel level) {
+        switch(level) {
+            case LogLevel::DEBUG: return "DEBUG";
+            case LogLevel::INFO: return "INFO";
+            case LogLevel::WARNING: return "WARNING";
+            case LogLevel::ERROR: return "ERROR";
+            default: return "UNKNOWN";
         }
-    }
-
-    void cleanup_old_files() {
-        std::vector<fs::path> log_files;
-        for (const auto& entry : fs::directory_iterator(log_directory)) {
-            if (entry.is_regular_file() && entry.path().filename().string().find(base_filename) == 0) {
-                log_files.push_back(entry.path());
-            }
-        }
-
-        std::sort(log_files.begin(), log_files.end(),
-                  [](const fs::path& a, const fs::path& b) {
-                      return fs::last_write_time(a) > fs::last_write_time(b);
-                  });
-
-        for (size_t i = max_backup_files; i < log_files.size(); ++i) {
-            fs::remove(log_files[i]);
-        }
-    }
-
-    void open_current_log() {
-        std::string current_path = log_directory + "/" + base_filename + ".log";
-        current_stream.open(current_path, std::ios::app);
-        current_size = fs::file_size(current_path);
     }
 
 public:
-    FileLogger(const std::string& filename, const std::string& dir = "logs",
-               size_t max_size = 1048576, int max_backups = 10)
-        : base_filename(filename), log_directory(dir), max_file_size(max_size),
-          max_backup_files(max_backups), current_size(0) {
-        if (!fs::exists(log_directory)) {
-            fs::create_directories(log_directory);
+    FileLogger(const std::string& filename, LogLevel level = LogLevel::INFO) 
+        : currentLevel(level) {
+        logFile.open(filename, std::ios::app);
+        if (!logFile.is_open()) {
+            throw std::runtime_error("Failed to open log file: " + filename);
         }
-        open_current_log();
     }
 
     ~FileLogger() {
-        if (current_stream.is_open()) {
-            current_stream.close();
+        if (logFile.is_open()) {
+            logFile.close();
         }
     }
 
-    void log(const std::string& message) {
-        std::lock_guard<std::mutex> lock(log_mutex);
-        auto now = std::chrono::system_clock::now();
-        auto time_t_now = std::chrono::system_clock::to_time_t(now);
-        std::stringstream ss;
-        ss << std::put_time(std::localtime(&time_t_now), "[%Y-%m-%d %H:%M:%S] ");
-        std::string log_entry = ss.str() + message + "\n";
-
-        current_stream << log_entry;
-        current_stream.flush();
-        current_size += log_entry.size();
-
-        rotate_if_needed();
+    void setLogLevel(LogLevel level) {
+        std::lock_guard<std::mutex> lock(logMutex);
+        currentLevel = level;
     }
 
-    void log_error(const std::string& message) {
-        log("[ERROR] " + message);
+    void log(LogLevel level, const std::string& message) {
+        if (level < currentLevel) return;
+
+        std::lock_guard<std::mutex> lock(logMutex);
+        if (!logFile.is_open()) return;
+
+        logFile << "[" << getCurrentTimestamp() << "] "
+                << "[" << levelToString(level) << "] "
+                << message << std::endl;
     }
 
-    void log_warning(const std::string& message) {
-        log("[WARNING] " + message);
+    void debug(const std::string& message) {
+        log(LogLevel::DEBUG, message);
     }
 
-    void log_info(const std::string& message) {
-        log("[INFO] " + message);
+    void info(const std::string& message) {
+        log(LogLevel::INFO, message);
     }
 
-private:
-    std::mutex log_mutex;
+    void warning(const std::string& message) {
+        log(LogLevel::WARNING, message);
+    }
+
+    void error(const std::string& message) {
+        log(LogLevel::ERROR, message);
+    }
+
+    void flush() {
+        std::lock_guard<std::mutex> lock(logMutex);
+        if (logFile.is_open()) {
+            logFile.flush();
+        }
+    }
 };
