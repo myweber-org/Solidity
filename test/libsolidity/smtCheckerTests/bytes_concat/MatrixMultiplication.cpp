@@ -7,34 +7,29 @@
 
 using namespace std;
 
-vector<vector<double>> generateRandomMatrix(int rows, int cols) {
-    vector<vector<double>> matrix(rows, vector<double>(cols));
+vector<vector<int>> generateRandomMatrix(int rows, int cols) {
+    vector<vector<int>> matrix(rows, vector<int>(cols));
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
-            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX;
+            matrix[i][j] = rand() % 100;
         }
     }
     return matrix;
 }
 
-vector<vector<double>> multiplyMatrices(const vector<vector<double>>& A,
-                                        const vector<vector<double>>& B) {
-    int m = A.size();
-    int n = A[0].size();
-    int p = B[0].size();
+vector<vector<int>> multiplyMatricesParallel(const vector<vector<int>>& A,
+                                             const vector<vector<int>>& B) {
+    int rowsA = A.size();
+    int colsA = A[0].size();
+    int colsB = B[0].size();
     
-    if (n != B.size()) {
-        cerr << "Matrix dimensions incompatible for multiplication." << endl;
-        exit(1);
-    }
-    
-    vector<vector<double>> result(m, vector<double>(p, 0.0));
+    vector<vector<int>> result(rowsA, vector<int>(colsB, 0));
     
     #pragma omp parallel for collapse(2)
-    for (int i = 0; i < m; ++i) {
-        for (int j = 0; j < p; ++j) {
-            double sum = 0.0;
-            for (int k = 0; k < n; ++k) {
+    for (int i = 0; i < rowsA; ++i) {
+        for (int j = 0; j < colsB; ++j) {
+            int sum = 0;
+            for (int k = 0; k < colsA; ++k) {
                 sum += A[i][k] * B[k][j];
             }
             result[i][j] = sum;
@@ -44,49 +39,41 @@ vector<vector<double>> multiplyMatrices(const vector<vector<double>>& A,
     return result;
 }
 
-void printMatrixStats(const vector<vector<double>>& matrix) {
-    double sum = 0.0;
-    double minVal = matrix[0][0];
-    double maxVal = matrix[0][0];
-    
-    #pragma omp parallel for reduction(+:sum) reduction(min:minVal) reduction(max:maxVal) collapse(2)
-    for (size_t i = 0; i < matrix.size(); ++i) {
-        for (size_t j = 0; j < matrix[i].size(); ++j) {
-            double val = matrix[i][j];
-            sum += val;
-            if (val < minVal) minVal = val;
-            if (val > maxVal) maxVal = val;
+void printMatrix(const vector<vector<int>>& matrix) {
+    for (const auto& row : matrix) {
+        for (int val : row) {
+            cout << val << "\t";
         }
+        cout << endl;
     }
-    
-    cout << "Matrix Statistics:" << endl;
-    cout << "  Sum: " << sum << endl;
-    cout << "  Average: " << sum / (matrix.size() * matrix[0].size()) << endl;
-    cout << "  Min: " << minVal << endl;
-    cout << "  Max: " << maxVal << endl;
 }
 
 int main() {
-    srand(static_cast<unsigned>(time(nullptr)));
+    srand(time(nullptr));
     
-    const int SIZE = 500;
+    const int N = 500;
+    const int M = 500;
+    const int P = 500;
     
-    cout << "Generating random matrices of size " << SIZE << "x" << SIZE << "..." << endl;
-    auto matrixA = generateRandomMatrix(SIZE, SIZE);
-    auto matrixB = generateRandomMatrix(SIZE, SIZE);
+    cout << "Generating random matrices..." << endl;
+    auto matrixA = generateRandomMatrix(N, M);
+    auto matrixB = generateRandomMatrix(M, P);
     
-    cout << "Performing matrix multiplication with OpenMP parallelization..." << endl;
+    cout << "Performing parallel matrix multiplication..." << endl;
     double startTime = omp_get_wtime();
-    
-    auto result = multiplyMatrices(matrixA, matrixB);
-    
+    auto result = multiplyMatricesParallel(matrixA, matrixB);
     double endTime = omp_get_wtime();
-    double elapsedTime = endTime - startTime;
     
-    cout << "Multiplication completed in " << elapsedTime << " seconds." << endl;
-    cout << "Performance: " << (2.0 * SIZE * SIZE * SIZE) / (elapsedTime * 1e9) << " GFLOPS" << endl;
+    cout << "Multiplication completed in " << (endTime - startTime) << " seconds" << endl;
     
-    printMatrixStats(result);
+    if (N <= 10 && M <= 10 && P <= 10) {
+        cout << "\nMatrix A:" << endl;
+        printMatrix(matrixA);
+        cout << "\nMatrix B:" << endl;
+        printMatrix(matrixB);
+        cout << "\nResult Matrix:" << endl;
+        printMatrix(result);
+    }
     
     return 0;
 }
