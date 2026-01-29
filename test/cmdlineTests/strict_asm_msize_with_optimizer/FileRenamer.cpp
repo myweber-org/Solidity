@@ -9,63 +9,78 @@ namespace fs = std::filesystem;
 
 class FileRenamer {
 public:
-    FileRenamer(const std::string& directory, const std::string& prefix)
-        : targetDirectory(directory), namePrefix(prefix) {}
+    FileRenamer(const std::string& directory, const std::string& baseName, const std::string& extension)
+        : targetDirectory(directory), newBaseName(baseName), fileExtension(extension) {}
 
     bool renameFiles() {
-        if (!fs::exists(targetDirectory) || !fs::is_directory(targetDirectory)) {
-            std::cerr << "Error: Directory does not exist or is not accessible." << std::endl;
+        std::vector<fs::path> files;
+        
+        try {
+            for (const auto& entry : fs::directory_iterator(targetDirectory)) {
+                if (fs::is_regular_file(entry.status())) {
+                    files.push_back(entry.path());
+                }
+            }
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Error accessing directory: " << e.what() << std::endl;
             return false;
         }
 
-        std::vector<fs::path> files;
-        for (const auto& entry : fs::directory_iterator(targetDirectory)) {
-            if (fs::is_regular_file(entry.status())) {
-                files.push_back(entry.path());
-            }
-        }
-
         if (files.empty()) {
-            std::cout << "No files found in the directory." << std::endl;
+            std::cout << "No files found in directory." << std::endl;
             return true;
         }
 
         std::sort(files.begin(), files.end());
 
         int counter = 1;
+        bool allRenamed = true;
+
         for (const auto& oldPath : files) {
-            std::string extension = oldPath.extension().string();
-            std::string newFilename = namePrefix + "_" + std::to_string(counter) + extension;
+            std::string newFilename = newBaseName + "_" + std::to_string(counter) + fileExtension;
             fs::path newPath = oldPath.parent_path() / newFilename;
 
             try {
                 fs::rename(oldPath, newPath);
                 std::cout << "Renamed: " << oldPath.filename() << " -> " << newFilename << std::endl;
-                ++counter;
+                counter++;
             } catch (const fs::filesystem_error& e) {
                 std::cerr << "Failed to rename " << oldPath.filename() << ": " << e.what() << std::endl;
+                allRenamed = false;
             }
         }
 
-        std::cout << "Renaming completed. " << (counter - 1) << " files processed." << std::endl;
-        return true;
+        return allRenamed;
     }
 
 private:
     std::string targetDirectory;
-    std::string namePrefix;
+    std::string newBaseName;
+    std::string fileExtension;
 };
 
 int main(int argc, char* argv[]) {
-    if (argc != 3) {
-        std::cout << "Usage: " << argv[0] << " <directory_path> <prefix>" << std::endl;
-        std::cout << "Example: " << argv[0] << " ./photos vacation" << std::endl;
+    if (argc != 4) {
+        std::cout << "Usage: " << argv[0] << " <directory> <base_name> <extension>" << std::endl;
+        std::cout << "Example: " << argv[0] << " ./photos vacation .jpg" << std::endl;
         return 1;
     }
 
     std::string directory = argv[1];
-    std::string prefix = argv[2];
+    std::string baseName = argv[2];
+    std::string extension = argv[3];
 
-    FileRenamer renamer(directory, prefix);
-    return renamer.renameFiles() ? 0 : 1;
+    if (extension[0] != '.') {
+        extension = "." + extension;
+    }
+
+    FileRenamer renamer(directory, baseName, extension);
+    
+    if (renamer.renameFiles()) {
+        std::cout << "File renaming completed successfully." << std::endl;
+        return 0;
+    } else {
+        std::cout << "File renaming completed with errors." << std::endl;
+        return 1;
+    }
 }
