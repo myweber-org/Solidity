@@ -1,102 +1,132 @@
 
 #include <iostream>
 #include <vector>
-#include <stdexcept>
+#include <cstdlib>
+#include <ctime>
+#include <omp.h>
 
-class Matrix {
+class ParallelMatrixMultiplier {
 private:
-    std::vector<std::vector<double>> data;
-    size_t rows;
-    size_t cols;
+    std::vector<std::vector<double>> matrixA;
+    std::vector<std::vector<double>> matrixB;
+    std::vector<std::vector<double>> result;
+    size_t rowsA, colsA, rowsB, colsB;
 
-public:
-    Matrix(size_t r, size_t c) : rows(r), cols(c) {
-        data.resize(rows, std::vector<double>(cols, 0.0));
-    }
-
-    void setValue(size_t r, size_t c, double value) {
-        if (r >= rows || c >= cols) {
-            throw std::out_of_range("Matrix indices out of range");
-        }
-        data[r][c] = value;
-    }
-
-    double getValue(size_t r, size_t c) const {
-        if (r >= rows || c >= cols) {
-            throw std::out_of_range("Matrix indices out of range");
-        }
-        return data[r][c];
-    }
-
-    size_t getRows() const { return rows; }
-    size_t getCols() const { return cols; }
-
-    void print() const {
+    void initializeRandomMatrix(std::vector<std::vector<double>>& matrix, size_t rows, size_t cols) {
+        matrix.resize(rows, std::vector<double>(cols));
         for (size_t i = 0; i < rows; ++i) {
             for (size_t j = 0; j < cols; ++j) {
-                std::cout << data[i][j] << " ";
+                matrix[i][j] = static_cast<double>(rand()) / RAND_MAX * 100.0;
             }
-            std::cout << std::endl;
         }
+    }
+
+public:
+    ParallelMatrixMultiplier(size_t rA, size_t cA, size_t rB, size_t cB) 
+        : rowsA(rA), colsA(cA), rowsB(rB), colsB(cB) {
+        if (colsA != rowsB) {
+            throw std::invalid_argument("Matrix dimensions incompatible for multiplication");
+        }
+        
+        srand(static_cast<unsigned>(time(nullptr)));
+        initializeRandomMatrix(matrixA, rowsA, colsA);
+        initializeRandomMatrix(matrixB, rowsB, colsB);
+        result.resize(rowsA, std::vector<double>(colsB, 0.0));
+    }
+
+    void multiplySequential() {
+        for (size_t i = 0; i < rowsA; ++i) {
+            for (size_t j = 0; j < colsB; ++j) {
+                double sum = 0.0;
+                for (size_t k = 0; k < colsA; ++k) {
+                    sum += matrixA[i][k] * matrixB[k][j];
+                }
+                result[i][j] = sum;
+            }
+        }
+    }
+
+    void multiplyParallel() {
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rowsA; ++i) {
+            for (size_t j = 0; j < colsB; ++j) {
+                double sum = 0.0;
+                for (size_t k = 0; k < colsA; ++k) {
+                    sum += matrixA[i][k] * matrixB[k][j];
+                }
+                result[i][j] = sum;
+            }
+        }
+    }
+
+    void verifyResults(const std::vector<std::vector<double>>& reference) {
+        double tolerance = 1e-9;
+        for (size_t i = 0; i < rowsA; ++i) {
+            for (size_t j = 0; j < colsB; ++j) {
+                if (std::abs(result[i][j] - reference[i][j]) > tolerance) {
+                    std::cerr << "Result verification failed at [" << i << "][" << j << "]\n";
+                    return;
+                }
+            }
+        }
+        std::cout << "Result verification passed\n";
+    }
+
+    void benchmarkMultiplication() {
+        std::vector<std::vector<double>> sequentialResult = result;
+        
+        clock_t start = clock();
+        multiplySequential();
+        clock_t end = clock();
+        double sequentialTime = static_cast<double>(end - start) / CLOCKS_PER_SEC;
+        sequentialResult = result;
+        
+        start = clock();
+        multiplyParallel();
+        end = clock();
+        double parallelTime = static_cast<double>(end - start) / CLOCKS_PER_SEC;
+        
+        std::cout << "Sequential time: " << sequentialTime << " seconds\n";
+        std::cout << "Parallel time: " << parallelTime << " seconds\n";
+        std::cout << "Speedup: " << sequentialTime / parallelTime << "x\n";
+        
+        verifyResults(sequentialResult);
+    }
+
+    void displayMatrix(const std::vector<std::vector<double>>& matrix, size_t maxRows = 5, size_t maxCols = 5) {
+        size_t displayRows = std::min(maxRows, matrix.size());
+        size_t displayCols = (matrix.empty()) ? 0 : std::min(maxCols, matrix[0].size());
+        
+        for (size_t i = 0; i < displayRows; ++i) {
+            for (size_t j = 0; j < displayCols; ++j) {
+                std::cout << matrix[i][j] << "\t";
+            }
+            if (displayCols < matrix[0].size()) std::cout << "...";
+            std::cout << "\n";
+        }
+        if (displayRows < matrix.size()) std::cout << "...\n";
     }
 };
 
-Matrix multiply(const Matrix& a, const Matrix& b) {
-    if (a.getCols() != b.getRows()) {
-        throw std::invalid_argument("Matrix dimensions mismatch for multiplication");
-    }
-
-    size_t rows = a.getRows();
-    size_t cols = b.getCols();
-    size_t common = a.getCols();
-
-    Matrix result(rows, cols);
-
-    for (size_t i = 0; i < rows; ++i) {
-        for (size_t j = 0; j < cols; ++j) {
-            double sum = 0.0;
-            for (size_t k = 0; k < common; ++k) {
-                sum += a.getValue(i, k) * b.getValue(k, j);
-            }
-            result.setValue(i, j, sum);
-        }
-    }
-
-    return result;
-}
-
 int main() {
     try {
-        Matrix mat1(2, 3);
-        Matrix mat2(3, 2);
-
-        mat1.setValue(0, 0, 1.0);
-        mat1.setValue(0, 1, 2.0);
-        mat1.setValue(0, 2, 3.0);
-        mat1.setValue(1, 0, 4.0);
-        mat1.setValue(1, 1, 5.0);
-        mat1.setValue(1, 2, 6.0);
-
-        mat2.setValue(0, 0, 7.0);
-        mat2.setValue(0, 1, 8.0);
-        mat2.setValue(1, 0, 9.0);
-        mat2.setValue(1, 1, 10.0);
-        mat2.setValue(2, 0, 11.0);
-        mat2.setValue(2, 1, 12.0);
-
-        std::cout << "Matrix A:" << std::endl;
-        mat1.print();
-        std::cout << "\nMatrix B:" << std::endl;
-        mat2.print();
-
-        Matrix result = multiply(mat1, mat2);
-        std::cout << "\nResult of multiplication:" << std::endl;
-        result.print();
-
+        const size_t ROWS_A = 500;
+        const size_t COLS_A = 500;
+        const size_t ROWS_B = 500;
+        const size_t COLS_B = 500;
+        
+        std::cout << "Initializing matrices of size " 
+                  << ROWS_A << "x" << COLS_A << " and " 
+                  << ROWS_B << "x" << COLS_B << "\n";
+        
+        ParallelMatrixMultiplier multiplier(ROWS_A, COLS_A, ROWS_B, COLS_B);
+        
+        std::cout << "\nBenchmarking matrix multiplication...\n";
+        multiplier.benchmarkMultiplication();
+        
+        return 0;
     } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+        std::cerr << "Error: " << e.what() << "\n";
         return 1;
     }
-
-    return 0;
 }
