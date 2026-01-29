@@ -1,55 +1,74 @@
 
 #include <iostream>
 #include <filesystem>
+#include <string>
 #include <vector>
 #include <algorithm>
-#include <string>
 
 namespace fs = std::filesystem;
 
-void renameFilesSequentially(const fs::path& directory) {
-    std::vector<fs::directory_entry> files;
+class FileRenamer {
+public:
+    FileRenamer(const std::string& directory, const std::string& prefix)
+        : targetDirectory(directory), namePrefix(prefix) {}
 
-    for (const auto& entry : fs::directory_iterator(directory)) {
-        if (fs::is_regular_file(entry.status())) {
-            files.push_back(entry);
+    bool renameFiles() {
+        if (!fs::exists(targetDirectory) || !fs::is_directory(targetDirectory)) {
+            std::cerr << "Error: Directory does not exist or is not accessible." << std::endl;
+            return false;
         }
+
+        std::vector<fs::directory_entry> files;
+        for (const auto& entry : fs::directory_iterator(targetDirectory)) {
+            if (fs::is_regular_file(entry.status())) {
+                files.push_back(entry);
+            }
+        }
+
+        if (files.empty()) {
+            std::cout << "No files found in the directory." << std::endl;
+            return true;
+        }
+
+        std::sort(files.begin(), files.end(),
+                  [](const fs::directory_entry& a, const fs::directory_entry& b) {
+                      return a.path().filename().string() < b.path().filename().string();
+                  });
+
+        int counter = 1;
+        for (const auto& file : files) {
+            fs::path oldPath = file.path();
+            std::string extension = oldPath.extension().string();
+            std::string newFilename = namePrefix + "_" + std::to_string(counter) + extension;
+            fs::path newPath = oldPath.parent_path() / newFilename;
+
+            try {
+                fs::rename(oldPath, newPath);
+                std::cout << "Renamed: " << oldPath.filename() << " -> " << newFilename << std::endl;
+                ++counter;
+            } catch (const fs::filesystem_error& e) {
+                std::cerr << "Failed to rename " << oldPath.filename() << ": " << e.what() << std::endl;
+            }
+        }
+
+        std::cout << "Renaming completed. " << (counter - 1) << " files processed." << std::endl;
+        return true;
     }
 
-    std::sort(files.begin(), files.end(),
-              [](const fs::directory_entry& a, const fs::directory_entry& b) {
-                  return fs::last_write_time(a) < fs::last_write_time(b);
-              });
-
-    int counter = 1;
-    for (const auto& file : files) {
-        fs::path oldPath = file.path();
-        fs::path extension = oldPath.extension();
-        fs::path newPath = directory / (std::to_string(counter) + extension.string());
-
-        try {
-            fs::rename(oldPath, newPath);
-            std::cout << "Renamed: " << oldPath.filename() << " -> " << newPath.filename() << std::endl;
-            ++counter;
-        } catch (const fs::filesystem_error& e) {
-            std::cerr << "Error renaming " << oldPath.filename() << ": " << e.what() << std::endl;
-        }
-    }
-}
+private:
+    std::string targetDirectory;
+    std::string namePrefix;
+};
 
 int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <directory_path>" << std::endl;
+    if (argc != 3) {
+        std::cout << "Usage: " << argv[0] << " <directory_path> <name_prefix>" << std::endl;
         return 1;
     }
 
-    fs::path targetDir(argv[1]);
+    std::string directory = argv[1];
+    std::string prefix = argv[2];
 
-    if (!fs::exists(targetDir) || !fs::is_directory(targetDir)) {
-        std::cerr << "Invalid directory: " << targetDir << std::endl;
-        return 1;
-    }
-
-    renameFilesSequentially(targetDir);
-    return 0;
+    FileRenamer renamer(directory, prefix);
+    return renamer.renameFiles() ? 0 : 1;
 }
