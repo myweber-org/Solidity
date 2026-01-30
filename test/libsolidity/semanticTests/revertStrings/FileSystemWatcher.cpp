@@ -1,60 +1,61 @@
+
 #include <iostream>
 #include <filesystem>
 #include <chrono>
 #include <thread>
-#include <unordered_map>
-#include <string>
+#include <unordered_set>
 
 namespace fs = std::filesystem;
 
 class FileSystemWatcher {
 private:
-    fs::path watchPath;
-    std::unordered_map<std::string, fs::file_time_type> fileTimestamps;
-    bool running;
+    fs::path path_to_watch;
+    std::unordered_set<std::string> current_files;
+    bool running = false;
 
-    void scanDirectory() {
-        for (const auto& entry : fs::recursive_directory_iterator(watchPath)) {
-            if (entry.is_regular_file()) {
-                auto path = entry.path().string();
-                auto currentTime = fs::last_write_time(entry);
-
-                if (fileTimestamps.find(path) == fileTimestamps.end()) {
-                    std::cout << "File added: " << path << std::endl;
-                    fileTimestamps[path] = currentTime;
-                } else if (fileTimestamps[path] != currentTime) {
-                    std::cout << "File modified: " << path << std::endl;
-                    fileTimestamps[path] = currentTime;
-                }
+    void populate_file_set() {
+        current_files.clear();
+        if (fs::exists(path_to_watch) && fs::is_directory(path_to_watch)) {
+            for (const auto& entry : fs::directory_iterator(path_to_watch)) {
+                current_files.insert(entry.path().filename().string());
             }
-        }
-
-        std::vector<std::string> toRemove;
-        for (const auto& [path, timestamp] : fileTimestamps) {
-            if (!fs::exists(path)) {
-                std::cout << "File deleted: " << path << std::endl;
-                toRemove.push_back(path);
-            }
-        }
-        for (const auto& path : toRemove) {
-            fileTimestamps.erase(path);
         }
     }
 
 public:
-    FileSystemWatcher(const std::string& path) : watchPath(path), running(false) {
-        if (!fs::exists(watchPath) || !fs::is_directory(watchPath)) {
-            throw std::runtime_error("Invalid directory path");
-        }
+    explicit FileSystemWatcher(const std::string& path) : path_to_watch(path) {
+        populate_file_set();
     }
 
-    void start(int intervalSeconds = 2) {
+    void start(int interval_seconds = 2) {
         running = true;
-        std::cout << "Watching directory: " << watchPath.string() << std::endl;
-        
+        std::cout << "Watching directory: " << path_to_watch << std::endl;
+
         while (running) {
-            scanDirectory();
-            std::this_thread::sleep_for(std::chrono::seconds(intervalSeconds));
+            std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
+
+            if (!fs::exists(path_to_watch)) {
+                std::cout << "Directory removed: " << path_to_watch << std::endl;
+                break;
+            }
+
+            std::unordered_set<std::string> new_files;
+            for (const auto& entry : fs::directory_iterator(path_to_watch)) {
+                std::string filename = entry.path().filename().string();
+                new_files.insert(filename);
+
+                if (current_files.find(filename) == current_files.end()) {
+                    std::cout << "File added: " << filename << std::endl;
+                }
+            }
+
+            for (const auto& old_file : current_files) {
+                if (new_files.find(old_file) == new_files.end()) {
+                    std::cout << "File removed: " << old_file << std::endl;
+                }
+            }
+
+            current_files = std::move(new_files);
         }
     }
 
@@ -63,19 +64,10 @@ public:
     }
 };
 
-int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <directory_to_watch>" << std::endl;
-        return 1;
-    }
+int main() {
+    std::string watch_path = ".";
+    FileSystemWatcher watcher(watch_path);
 
-    try {
-        FileSystemWatcher watcher(argv[1]);
-        watcher.start();
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return 1;
-    }
-
+    watcher.start();
     return 0;
 }
