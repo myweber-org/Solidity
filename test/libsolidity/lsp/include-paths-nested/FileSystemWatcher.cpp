@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <filesystem>
 #include <chrono>
@@ -8,94 +7,87 @@
 
 namespace fs = std::filesystem;
 
-class SimpleFileWatcher {
+class FileSystemWatcher {
 public:
-    using FileTimeMap = std::unordered_map<std::string, fs::file_time_type>;
+    explicit FileSystemWatcher(const fs::path& directory) : watch_path(directory) {
+        if (!fs::exists(watch_path) || !fs::is_directory(watch_path)) {
+            throw std::invalid_argument("Provided path is not a valid directory.");
+        }
+        populate_file_map();
+    }
 
-    SimpleFileWatcher(const std::string& path, int interval_ms = 1000)
-        : watch_path_(path), interval_ms_(interval_ms), running_(false) {}
-
-    void start() {
-        running_ = true;
-        snapshot_ = take_snapshot();
-        std::cout << "Watching directory: " << watch_path_ << std::endl;
-
-        while (running_) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms_));
+    void start_monitoring(int interval_seconds = 1) {
+        std::cout << "Starting to monitor: " << watch_path.string() << std::endl;
+        while (monitoring_active) {
+            std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
             check_for_changes();
         }
     }
 
-    void stop() {
-        running_ = false;
+    void stop_monitoring() {
+        monitoring_active = false;
     }
 
 private:
-    FileTimeMap take_snapshot() {
-        FileTimeMap snapshot;
-        try {
-            for (const auto& entry : fs::recursive_directory_iterator(watch_path_)) {
-                if (entry.is_regular_file()) {
-                    snapshot[entry.path().string()] = fs::last_write_time(entry);
-                }
+    fs::path watch_path;
+    std::unordered_map<std::string, fs::file_time_type> file_map;
+    bool monitoring_active{true};
+
+    void populate_file_map() {
+        file_map.clear();
+        for (const auto& entry : fs::recursive_directory_iterator(watch_path)) {
+            if (fs::is_regular_file(entry.path())) {
+                file_map[entry.path().string()] = fs::last_write_time(entry.path());
             }
-        } catch (const fs::filesystem_error& e) {
-            std::cerr << "Filesystem error: " << e.what() << std::endl;
         }
-        return snapshot;
     }
 
     void check_for_changes() {
-        auto current_state = take_snapshot();
+        auto current_files = file_map;
+        bool changes_detected = false;
 
-        for (const auto& [path, time] : current_state) {
-            auto old_it = snapshot_.find(path);
-            if (old_it == snapshot_.end()) {
-                std::cout << "[NEW] " << path << std::endl;
-            } else if (old_it->second != time) {
-                std::cout << "[MODIFIED] " << path << std::endl;
+        for (const auto& entry : fs::recursive_directory_iterator(watch_path)) {
+            if (!fs::is_regular_file(entry.path())) continue;
+
+            std::string file_path = entry.path().string();
+            auto current_write_time = fs::last_write_time(entry.path());
+
+            if (file_map.find(file_path) == file_map.end()) {
+                std::cout << "[NEW] " << file_path << std::endl;
+                changes_detected = true;
+            } else if (file_map[file_path] != current_write_time) {
+                std::cout << "[MODIFIED] " << file_path << std::endl;
+                changes_detected = true;
+            }
+            current_files[file_path] = current_write_time;
+        }
+
+        for (const auto& [file_path, _] : file_map) {
+            if (current_files.find(file_path) == current_files.end()) {
+                std::cout << "[DELETED] " << file_path << std::endl;
+                changes_detected = true;
             }
         }
 
-        for (const auto& [path, time] : snapshot_) {
-            if (current_state.find(path) == current_state.end()) {
-                std::cout << "[DELETED] " << path << std::endl;
-            }
+        if (changes_detected) {
+            file_map.swap(current_files);
         }
-
-        snapshot_ = std::move(current_state);
     }
-
-    std::string watch_path_;
-    int interval_ms_;
-    bool running_;
-    FileTimeMap snapshot_;
 };
 
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
+    if (argc != 2) {
         std::cerr << "Usage: " << argv[0] << " <directory_to_watch>" << std::endl;
         return 1;
     }
 
-    std::string watch_dir = argv[1];
-    if (!fs::exists(watch_dir) || !fs::is_directory(watch_dir)) {
-        std::cerr << "Error: " << watch_dir << " is not a valid directory." << std::endl;
+    try {
+        FileSystemWatcher watcher(argv[1]);
+        watcher.start_monitoring();
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
 
-    SimpleFileWatcher watcher(watch_dir, 2000);
-
-    std::thread watch_thread([&watcher]() {
-        watcher.start();
-    });
-
-    std::cout << "File watcher started. Press Enter to stop..." << std::endl;
-    std::cin.get();
-
-    watcher.stop();
-    watch_thread.join();
-
-    std::cout << "File watcher stopped." << std::endl;
     return 0;
 }
