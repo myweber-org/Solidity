@@ -84,3 +84,81 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 }
+#include <iostream>
+#include <filesystem>
+#include <string>
+#include <vector>
+#include <algorithm>
+
+namespace fs = std::filesystem;
+
+class FileRenamer {
+public:
+    explicit FileRenamer(const std::string& directory) : dir_path(directory) {}
+
+    bool renameFiles(const std::string& base_name, int start_index = 1) {
+        if (!fs::exists(dir_path) || !fs::is_directory(dir_path)) {
+            std::cerr << "Error: Directory does not exist." << std::endl;
+            return false;
+        }
+
+        std::vector<fs::directory_entry> files;
+        for (const auto& entry : fs::directory_iterator(dir_path)) {
+            if (fs::is_regular_file(entry.status())) {
+                files.push_back(entry);
+            }
+        }
+
+        if (files.empty()) {
+            std::cout << "No files found in directory." << std::endl;
+            return true;
+        }
+
+        std::sort(files.begin(), files.end(),
+                  [](const fs::directory_entry& a, const fs::directory_entry& b) {
+                      return a.path().filename().string() < b.path().filename().string();
+                  });
+
+        int index = start_index;
+        for (const auto& file : files) {
+            fs::path old_path = file.path();
+            std::string extension = old_path.extension().string();
+
+            std::string new_filename = base_name + "_" + std::to_string(index) + extension;
+            fs::path new_path = old_path.parent_path() / new_filename;
+
+            try {
+                fs::rename(old_path, new_path);
+                std::cout << "Renamed: " << old_path.filename() << " -> " << new_filename << std::endl;
+                ++index;
+            } catch (const fs::filesystem_error& e) {
+                std::cerr << "Failed to rename " << old_path.filename() << ": " << e.what() << std::endl;
+                return false;
+            }
+        }
+
+        std::cout << "Renaming completed successfully." << std::endl;
+        return true;
+    }
+
+private:
+    fs::path dir_path;
+};
+
+int main(int argc, char* argv[]) {
+    if (argc < 3) {
+        std::cout << "Usage: " << argv[0] << " <directory_path> <base_name> [start_index]" << std::endl;
+        return 1;
+    }
+
+    std::string directory = argv[1];
+    std::string base_name = argv[2];
+    int start_index = (argc > 3) ? std::stoi(argv[3]) : 1;
+
+    FileRenamer renamer(directory);
+    if (!renamer.renameFiles(base_name, start_index)) {
+        return 1;
+    }
+
+    return 0;
+}
