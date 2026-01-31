@@ -221,4 +221,68 @@ int main() {
     watcher.stop();
 
     return 0;
+}#include <iostream>
+#include <filesystem>
+#include <chrono>
+#include <thread>
+#include <unordered_set>
+
+namespace fs = std::filesystem;
+
+class FileSystemWatcher {
+public:
+    FileSystemWatcher(const fs::path& path_to_watch) : path_to_watch_(path_to_watch) {
+        for (const auto& entry : fs::directory_iterator(path_to_watch_)) {
+            path_cache_.insert(entry.path());
+        }
+    }
+
+    void startMonitoring(int interval_seconds = 1) {
+        std::cout << "Starting to monitor: " << path_to_watch_ << std::endl;
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
+            checkForChanges();
+        }
+    }
+
+private:
+    fs::path path_to_watch_;
+    std::unordered_set<std::string> path_cache_;
+
+    void checkForChanges() {
+        auto current_state = std::unordered_set<std::string>();
+        for (const auto& entry : fs::directory_iterator(path_to_watch_)) {
+            current_state.insert(entry.path());
+        }
+
+        // Check for new files
+        for (const auto& new_path : current_state) {
+            if (path_cache_.find(new_path) == path_cache_.end()) {
+                std::cout << "[+] New file detected: " << new_path << std::endl;
+            }
+        }
+
+        // Check for deleted files
+        for (const auto& old_path : path_cache_) {
+            if (current_state.find(old_path) == current_state.end()) {
+                std::cout << "[-] File deleted: " << old_path << std::endl;
+            }
+        }
+
+        path_cache_ = current_state;
+    }
+};
+
+int main() {
+    fs::path directory_to_watch = "./watch_directory";
+    
+    if (!fs::exists(directory_to_watch)) {
+        fs::create_directory(directory_to_watch);
+        std::cout << "Created directory: " << directory_to_watch << std::endl;
+    }
+
+    FileSystemWatcher watcher(directory_to_watch);
+    watcher.startMonitoring(2);
+
+    return 0;
 }
