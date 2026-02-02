@@ -44,3 +44,78 @@ int main() {
 
     return 0;
 }
+#include <iostream>
+#include <vector>
+
+template <typename T>
+class Matrix {
+private:
+    T** data;
+    size_t rows;
+    size_t cols;
+
+public:
+    Matrix(size_t r, size_t c) : rows(r), cols(c) {
+        data = new T*[rows];
+        for (size_t i = 0; i < rows; ++i) {
+            data[i] = new T[cols];
+        }
+    }
+
+    ~Matrix() {
+        for (size_t i = 0; i < rows; ++i) {
+            delete[] data[i];
+        }
+        delete[] data;
+    }
+
+    void fillFromVector(const std::vector<std::vector<T>>& vec) {
+        for (size_t i = 0; i < rows && i < vec.size(); ++i) {
+            for (size_t j = 0; j < cols && j < vec[i].size(); ++j) {
+                data[i][j] = vec[i][j];
+            }
+        }
+    }
+
+    Matrix<T> transpose() const {
+        Matrix<T> result(cols, rows);
+        for (size_t i = 0; i < rows; ++i) {
+            for (size_t j = 0; j < cols; ++j) {
+                result.data[j][i] = data[i][j];
+            }
+        }
+        return result;
+    }
+
+    void print() const {
+        for (size_t i = 0; i < rows; ++i) {
+            for (size_t j = 0; j < cols; ++j) {
+                std::cout << data[i][j] << " ";
+            }
+            std::cout << std::endl;
+        }
+    }
+
+    size_t getRows() const { return rows; }
+    size_t getCols() const { return cols; }
+};
+
+int main() {
+    std::vector<std::vector<int>> original = {
+        {1, 2, 3},
+        {4, 5, 6},
+        {7, 8, 9}
+    };
+
+    Matrix<int> mat(3, 3);
+    mat.fillFromVector(original);
+
+    std::cout << "Original matrix:" << std::endl;
+    mat.print();
+
+    Matrix<int> transposed = mat.transpose();
+    std::cout << "\nTransposed matrix:" << std::endl;
+    transposed.print();
+
+    return 0;
+}
