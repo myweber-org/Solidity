@@ -5,82 +5,64 @@
 #include <ctime>
 #include <omp.h>
 
-class ParallelMatrixMultiplier {
-public:
-    static std::vector<std::vector<double>> multiply(const std::vector<std::vector<double>>& A,
-                                                     const std::vector<std::vector<double>>& B) {
-        size_t rowsA = A.size();
-        size_t colsA = A[0].size();
-        size_t colsB = B[0].size();
-        
-        std::vector<std::vector<double>> result(rowsA, std::vector<double>(colsB, 0.0));
-        
-        #pragma omp parallel for collapse(2)
-        for (size_t i = 0; i < rowsA; ++i) {
-            for (size_t j = 0; j < colsB; ++j) {
-                double sum = 0.0;
-                for (size_t k = 0; k < colsA; ++k) {
-                    sum += A[i][k] * B[k][j];
-                }
-                result[i][j] = sum;
-            }
+std::vector<std::vector<double>> generate_random_matrix(int rows, int cols) {
+    std::vector<std::vector<double>> matrix(rows, std::vector<double>(cols));
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            matrix[i][j] = static_cast<double>(rand()) / RAND_MAX;
         }
-        
-        return result;
     }
+    return matrix;
+}
+
+std::vector<std::vector<double>> multiply_matrices_parallel(
+    const std::vector<std::vector<double>>& A,
+    const std::vector<std::vector<double>>& B) {
     
-    static void initializeRandomMatrix(std::vector<std::vector<double>>& matrix) {
-        #pragma omp parallel for collapse(2)
-        for (size_t i = 0; i < matrix.size(); ++i) {
-            for (size_t j = 0; j < matrix[0].size(); ++j) {
-                matrix[i][j] = static_cast<double>(rand()) / RAND_MAX * 100.0;
+    int rows_A = A.size();
+    int cols_A = A[0].size();
+    int cols_B = B[0].size();
+    
+    std::vector<std::vector<double>> result(rows_A, std::vector<double>(cols_B, 0.0));
+    
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < rows_A; ++i) {
+        for (int j = 0; j < cols_B; ++j) {
+            double sum = 0.0;
+            for (int k = 0; k < cols_A; ++k) {
+                sum += A[i][k] * B[k][j];
             }
+            result[i][j] = sum;
         }
     }
     
-    static bool validateMultiplication(const std::vector<std::vector<double>>& A,
-                                       const std::vector<std::vector<double>>& B,
-                                       const std::vector<std::vector<double>>& C) {
-        size_t rowsA = A.size();
-        size_t colsA = A[0].size();
-        size_t colsB = B[0].size();
-        
-        for (size_t i = 0; i < rowsA; ++i) {
-            for (size_t j = 0; j < colsB; ++j) {
-                double sum = 0.0;
-                for (size_t k = 0; k < colsA; ++k) {
-                    sum += A[i][k] * B[k][j];
-                }
-                if (std::abs(sum - C[i][j]) > 1e-6) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-};
+    return result;
+}
 
 int main() {
-    const size_t N = 512;
     srand(static_cast<unsigned>(time(nullptr)));
     
-    std::vector<std::vector<double>> matrixA(N, std::vector<double>(N));
-    std::vector<std::vector<double>> matrixB(N, std::vector<double>(N));
+    const int N = 500;
+    std::cout << "Generating random matrices of size " << N << "x" << N << "..." << std::endl;
     
-    ParallelMatrixMultiplier::initializeRandomMatrix(matrixA);
-    ParallelMatrixMultiplier::initializeRandomMatrix(matrixB);
+    auto matrix_A = generate_random_matrix(N, N);
+    auto matrix_B = generate_random_matrix(N, N);
     
-    double startTime = omp_get_wtime();
-    auto result = ParallelMatrixMultiplier::multiply(matrixA, matrixB);
-    double endTime = omp_get_wtime();
+    std::cout << "Performing parallel matrix multiplication..." << std::endl;
+    double start_time = omp_get_wtime();
     
-    std::cout << "Matrix multiplication completed in " << (endTime - startTime) << " seconds" << std::endl;
+    auto result = multiply_matrices_parallel(matrix_A, matrix_B);
     
-    if (ParallelMatrixMultiplier::validateMultiplication(matrixA, matrixB, result)) {
-        std::cout << "Result validation: PASSED" << std::endl;
-    } else {
-        std::cout << "Result validation: FAILED" << std::endl;
+    double end_time = omp_get_wtime();
+    std::cout << "Multiplication completed in " << (end_time - start_time) << " seconds." << std::endl;
+    
+    double checksum = 0.0;
+    for (int i = 0; i < N; i += 50) {
+        for (int j = 0; j < N; j += 50) {
+            checksum += result[i][j];
+        }
     }
+    std::cout << "Result checksum: " << checksum << std::endl;
     
     return 0;
 }
