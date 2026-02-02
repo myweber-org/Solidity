@@ -68,3 +68,155 @@ int main() {
     }
     return 0;
 }
+#include <iostream>
+#include <filesystem>
+#include <chrono>
+#include <thread>
+#include <unordered_map>
+#include <functional>
+#include <atomic>
+#include <mutex>
+
+namespace fs = std::filesystem;
+
+class FileSystemWatcher {
+public:
+    using FileChangeCallback = std::function<void(const fs::path&, const std::string&)>;
+
+    FileSystemWatcher() : running_(false) {}
+
+    void addWatchPath(const fs::path& path, bool recursive = true) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        watch_paths_.push_back({path, recursive});
+        scanExistingFiles(path, recursive);
+    }
+
+    void setChangeCallback(FileChangeCallback callback) {
+        callback_ = std::move(callback);
+    }
+
+    void start() {
+        running_ = true;
+        monitor_thread_ = std::thread(&FileSystemWatcher::monitorLoop, this);
+    }
+
+    void stop() {
+        running_ = false;
+        if (monitor_thread_.joinable()) {
+            monitor_thread_.join();
+        }
+    }
+
+    ~FileSystemWatcher() {
+        stop();
+    }
+
+private:
+    struct WatchInfo {
+        fs::path path;
+        bool recursive;
+    };
+
+    void scanExistingFiles(const fs::path& path, bool recursive) {
+        try {
+            if (recursive) {
+                for (const auto& entry : fs::recursive_directory_iterator(path)) {
+                    if (entry.is_regular_file()) {
+                        file_timestamps_[entry.path()] = entry.last_write_time();
+                    }
+                }
+            } else {
+                for (const auto& entry : fs::directory_iterator(path)) {
+                    if (entry.is_regular_file()) {
+                        file_timestamps_[entry.path()] = entry.last_write_time();
+                    }
+                }
+            }
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Filesystem error during scan: " << e.what() << std::endl;
+        }
+    }
+
+    void monitorLoop() {
+        while (running_) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            checkForChanges();
+        }
+    }
+
+    void checkForChanges() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        
+        for (const auto& watch_info : watch_paths_) {
+            try {
+                if (watch_info.recursive) {
+                    checkDirectoryRecursive(watch_info.path);
+                } else {
+                    checkDirectory(watch_info.path);
+                }
+            } catch (const fs::filesystem_error& e) {
+                std::cerr << "Filesystem error: " << e.what() << std::endl;
+            }
+        }
+    }
+
+    void checkDirectory(const fs::path& dir) {
+        std::unordered_map<fs::path, fs::file_time_type> current_files;
+
+        for (const auto& entry : fs::directory_iterator(dir)) {
+            if (entry.is_regular_file()) {
+                current_files[entry.path()] = entry.last_write_time();
+            }
+        }
+
+        detectChanges(current_files);
+    }
+
+    void checkDirectoryRecursive(const fs::path& dir) {
+        std::unordered_map<fs::path, fs::file_time_type> current_files;
+
+        for (const auto& entry : fs::recursive_directory_iterator(dir)) {
+            if (entry.is_regular_file()) {
+                current_files[entry.path()] = entry.last_write_time();
+            }
+        }
+
+        detectChanges(current_files);
+    }
+
+    void detectChanges(const std::unordered_map<fs::path, fs::file_time_type>& current_files) {
+        for (const auto& [path, timestamp] : current_files) {
+            auto it = file_timestamps_.find(path);
+            if (it == file_timestamps_.end()) {
+                file_timestamps_[path] = timestamp;
+                if (callback_) {
+                    callback_(path, "created");
+                }
+            } else if (it->second != timestamp) {
+                it->second = timestamp;
+                if (callback_) {
+                    callback_(path, "modified");
+                }
+            }
+        }
+
+        auto it = file_timestamps_.begin();
+        while (it != file_timestamps_.end()) {
+            if (current_files.find(it->first) == current_files.end()) {
+                if (callback_) {
+                    callback_(it->first, "deleted");
+                }
+                it = file_timestamps_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    std::vector<WatchInfo> watch_paths_;
+    std::unordered_map<fs::path, fs::file_time_type> file_timestamps_;
+    FileChangeCallback callback_;
+    std::atomic<bool> running_;
+    std::thread monitor_thread_;
+    std::mutex mutex_;
+};
