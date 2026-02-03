@@ -59,59 +59,81 @@ public:
         }
     }
 
-    void displayMatrix(const std::vector<std::vector<double>>& matrix, size_t maxRows = 5, size_t maxCols = 5) const {
-        size_t displayRows = std::min(matrix.size(), maxRows);
-        size_t displayCols = matrix.empty() ? 0 : std::min(matrix[0].size(), maxCols);
+    void verifyResults(const std::vector<std::vector<double>>& reference) {
+        const double epsilon = 1e-9;
+        for (size_t i = 0; i < rowsA; ++i) {
+            for (size_t j = 0; j < colsB; ++j) {
+                if (std::abs(result[i][j] - reference[i][j]) > epsilon) {
+                    std::cerr << "Result verification failed at [" << i << "][" << j << "]" << std::endl;
+                    return;
+                }
+            }
+        }
+        std::cout << "Result verification passed" << std::endl;
+    }
+
+    void printMatrix(const std::vector<std::vector<double>>& matrix, size_t maxRows = 5, size_t maxCols = 5) {
+        size_t printRows = std::min(maxRows, matrix.size());
+        size_t printCols = (matrix.empty()) ? 0 : std::min(maxCols, matrix[0].size());
         
-        for (size_t i = 0; i < displayRows; ++i) {
-            for (size_t j = 0; j < displayCols; ++j) {
+        for (size_t i = 0; i < printRows; ++i) {
+            for (size_t j = 0; j < printCols; ++j) {
                 std::cout << matrix[i][j] << "\t";
             }
-            if (displayCols < matrix[0].size()) std::cout << "...";
+            if (printCols < matrix[0].size()) std::cout << "...";
             std::cout << std::endl;
         }
-        if (displayRows < matrix.size()) std::cout << "...\n";
+        if (printRows < matrix.size()) std::cout << "...\n" << std::endl;
     }
 
-    void benchmarkMultiplication() {
-        std::cout << "Matrix A dimensions: " << rowsA << "x" << colsA << std::endl;
-        std::cout << "Matrix B dimensions: " << rowsB << "x" << colsB << std::endl;
-        std::cout << "Result dimensions: " << rowsA << "x" << colsB << std::endl;
-
-        double startTime = omp_get_wtime();
-        multiplySequential();
-        double sequentialTime = omp_get_wtime() - startTime;
-        std::cout << "Sequential multiplication time: " << sequentialTime << " seconds" << std::endl;
-
-        startTime = omp_get_wtime();
-        multiplyParallel();
-        double parallelTime = omp_get_wtime() - startTime;
-        std::cout << "Parallel multiplication time: " << parallelTime << " seconds" << std::endl;
-
-        std::cout << "Speedup factor: " << sequentialTime / parallelTime << std::endl;
+    void benchmark() {
+        std::vector<std::vector<double>> sequentialResult = result;
         
-        std::cout << "\nFirst 5x5 elements of result matrix:" << std::endl;
-        displayMatrix(result);
-    }
-
-    const std::vector<std::vector<double>>& getResult() const {
-        return result;
+        clock_t start = clock();
+        multiplySequential();
+        clock_t end = clock();
+        double sequentialTime = static_cast<double>(end - start) / CLOCKS_PER_SEC;
+        sequentialResult = result;
+        
+        start = clock();
+        multiplyParallel();
+        end = clock();
+        double parallelTime = static_cast<double>(end - start) / CLOCKS_PER_SEC;
+        
+        std::cout << "Sequential execution time: " << sequentialTime << " seconds" << std::endl;
+        std::cout << "Parallel execution time: " << parallelTime << " seconds" << std::endl;
+        std::cout << "Speedup: " << sequentialTime / parallelTime << "x" << std::endl;
+        
+        verifyResults(sequentialResult);
     }
 };
 
 int main() {
     try {
-        const size_t ROWS_A = 500;
-        const size_t COLS_A = 500;
-        const size_t ROWS_B = 500;
-        const size_t COLS_B = 500;
-
-        ParallelMatrixMultiplier multiplier(ROWS_A, COLS_A, ROWS_B, COLS_B);
-        multiplier.benchmarkMultiplication();
-
-        return 0;
+        const size_t rowsA = 500;
+        const size_t colsA = 500;
+        const size_t rowsB = 500;
+        const size_t colsB = 500;
+        
+        std::cout << "Initializing matrices of size " 
+                  << rowsA << "x" << colsA << " and " 
+                  << rowsB << "x" << colsB << std::endl;
+        
+        ParallelMatrixMultiplier multiplier(rowsA, colsA, rowsB, colsB);
+        
+        std::cout << "\nFirst 5x5 elements of Matrix A:" << std::endl;
+        multiplier.printMatrix(multiplier.matrixA, 5, 5);
+        
+        std::cout << "\nFirst 5x5 elements of Matrix B:" << std::endl;
+        multiplier.printMatrix(multiplier.matrixB, 5, 5);
+        
+        std::cout << "\nBenchmarking matrix multiplication..." << std::endl;
+        multiplier.benchmark();
+        
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
+    
+    return 0;
 }
