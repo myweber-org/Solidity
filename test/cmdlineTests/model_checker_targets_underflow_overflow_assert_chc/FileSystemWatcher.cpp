@@ -82,4 +82,129 @@ int main() {
         return 1;
     }
     return 0;
+}#include <iostream>
+#include <filesystem>
+#include <chrono>
+#include <thread>
+#include <unordered_map>
+#include <string>
+#include <functional>
+
+namespace fs = std::filesystem;
+
+class FileSystemWatcher {
+public:
+    using Callback = std::function<void(const fs::path&, const std::string&)>;
+
+    FileSystemWatcher() : running_(false) {}
+
+    void addWatchPath(const fs::path& path, Callback callback) {
+        if (!fs::exists(path)) {
+            std::cerr << "Path does not exist: " << path << std::endl;
+            return;
+        }
+
+        watch_paths_[path] = {callback, getFileModificationMap(path)};
+        std::cout << "Watching path: " << path << std::endl;
+    }
+
+    void start() {
+        running_ = true;
+        monitorThread_ = std::thread(&FileSystemWatcher::monitor, this);
+    }
+
+    void stop() {
+        running_ = false;
+        if (monitorThread_.joinable()) {
+            monitorThread_.join();
+        }
+    }
+
+    ~FileSystemWatcher() {
+        stop();
+    }
+
+private:
+    struct WatchInfo {
+        Callback callback;
+        std::unordered_map<std::string, fs::file_time_type> file_mod_times;
+    };
+
+    std::unordered_map<fs::path, WatchInfo> watch_paths_;
+    std::thread monitorThread_;
+    bool running_;
+
+    std::unordered_map<std::string, fs::file_time_type> getFileModificationMap(const fs::path& directory) {
+        std::unordered_map<std::string, fs::file_time_type> mod_times;
+        try {
+            for (const auto& entry : fs::recursive_directory_iterator(directory)) {
+                if (fs::is_regular_file(entry.path())) {
+                    mod_times[entry.path().string()] = fs::last_write_time(entry.path());
+                }
+            }
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Filesystem error: " << e.what() << std::endl;
+        }
+        return mod_times;
+    }
+
+    void monitor() {
+        while (running_) {
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+
+            for (auto& [path, watch_info] : watch_paths_) {
+                try {
+                    auto current_mod_times = getFileModificationMap(path);
+                    auto& old_mod_times = watch_info.file_mod_times;
+
+                    for (const auto& [file_path, mod_time] : current_mod_times) {
+                        auto it = old_mod_times.find(file_path);
+                        if (it == old_mod_times.end()) {
+                            std::cout << "File created: " << file_path << std::endl;
+                            watch_info.callback(file_path, "created");
+                        } else if (it->second != mod_time) {
+                            std::cout << "File modified: " << file_path << std::endl;
+                            watch_info.callback(file_path, "modified");
+                            it->second = mod_time;
+                        }
+                    }
+
+                    for (auto it = old_mod_times.begin(); it != old_mod_times.end();) {
+                        if (current_mod_times.find(it->first) == current_mod_times.end()) {
+                            std::cout << "File deleted: " << it->first << std::endl;
+                            watch_info.callback(it->first, "deleted");
+                            it = old_mod_times.erase(it);
+                        } else {
+                            ++it;
+                        }
+                    }
+
+                    old_mod_times = std::move(current_mod_times);
+                } catch (const fs::filesystem_error& e) {
+                    std::cerr << "Error watching path " << path << ": " << e.what() << std::endl;
+                }
+            }
+        }
+    }
+};
+
+void exampleCallback(const fs::path& file_path, const std::string& action) {
+    std::cout << "Callback: File " << file_path << " was " << action << std::endl;
+}
+
+int main() {
+    FileSystemWatcher watcher;
+
+    watcher.addWatchPath("./test_directory", exampleCallback);
+    watcher.addWatchPath("./another_directory", [](const fs::path& p, const std::string& a) {
+        std::cout << "Lambda callback: " << p << " - " << a << std::endl;
+    });
+
+    watcher.start();
+
+    std::cout << "File system watcher started. Press Enter to stop..." << std::endl;
+    std::cin.get();
+
+    watcher.stop();
+    return 0;
 }
