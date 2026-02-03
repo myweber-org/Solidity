@@ -1,14 +1,13 @@
-
 #include <iostream>
 #include <fstream>
-#include <sstream>
 #include <iomanip>
+#include <sstream>
 #include <vector>
 #include <openssl/sha.h>
 
 class FileHashVerifier {
 public:
-    static std::string computeSHA256(const std::string& filepath) {
+    static std::string calculateSHA256(const std::string& filepath) {
         std::ifstream file(filepath, std::ios::binary);
         if (!file) {
             throw std::runtime_error("Cannot open file: " + filepath);
@@ -17,30 +16,62 @@ public:
         SHA256_CTX sha256;
         SHA256_Init(&sha256);
 
-        std::vector<char> buffer(4096);
-        while (file.read(buffer.data(), buffer.size()) || file.gcount()) {
-            SHA256_Update(&sha256, buffer.data(), file.gcount());
+        const size_t bufferSize = 65536;
+        std::vector<char> buffer(bufferSize);
+        std::streamsize totalBytes = 0;
+        std::streamsize fileSize = getFileSize(file);
+
+        while (file) {
+            file.read(buffer.data(), bufferSize);
+            std::streamsize bytesRead = file.gcount();
+            
+            if (bytesRead > 0) {
+                SHA256_Update(&sha256, buffer.data(), bytesRead);
+                totalBytes += bytesRead;
+                
+                // Display progress
+                if (fileSize > 0) {
+                    int progress = static_cast<int>((totalBytes * 100) / fileSize);
+                    std::cout << "\rProcessing: " << progress << "% complete" << std::flush;
+                }
+            }
         }
+
+        std::cout << std::endl;
 
         unsigned char hash[SHA256_DIGEST_LENGTH];
         SHA256_Final(hash, &sha256);
 
-        std::ostringstream oss;
-        oss << std::hex << std::setfill('0');
-        for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
-            oss << std::setw(2) << static_cast<int>(hash[i]);
+        std::stringstream ss;
+        for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+            ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
         }
-        return oss.str();
+
+        return ss.str();
     }
 
-    static bool verifyFile(const std::string& filepath, const std::string& expectedHash) {
+    static bool verifyFileIntegrity(const std::string& filepath, const std::string& expectedHash) {
         try {
-            std::string actualHash = computeSHA256(filepath);
-            return actualHash == expectedHash;
+            std::string calculatedHash = calculateSHA256(filepath);
+            std::cout << "Calculated hash: " << calculatedHash << std::endl;
+            std::cout << "Expected hash:   " << expectedHash << std::endl;
+            
+            bool match = (calculatedHash == expectedHash);
+            std::cout << "Verification: " << (match ? "PASSED" : "FAILED") << std::endl;
+            return match;
         } catch (const std::exception& e) {
-            std::cerr << "Verification error: " << e.what() << std::endl;
+            std::cerr << "Error: " << e.what() << std::endl;
             return false;
         }
+    }
+
+private:
+    static std::streamsize getFileSize(std::ifstream& file) {
+        std::streampos current = file.tellg();
+        file.seekg(0, std::ios::end);
+        std::streamsize size = file.tellg();
+        file.seekg(current, std::ios::beg);
+        return size;
     }
 };
 
@@ -53,13 +84,6 @@ int main(int argc, char* argv[]) {
     std::string filepath = argv[1];
     std::string expectedHash = argv[2];
 
-    bool isValid = FileHashVerifier::verifyFile(filepath, expectedHash);
-    
-    if (isValid) {
-        std::cout << "File hash verification SUCCESS: " << filepath << std::endl;
-        return 0;
-    } else {
-        std::cout << "File hash verification FAILED: " << filepath << std::endl;
-        return 1;
-    }
+    bool isValid = FileHashVerifier::verifyFileIntegrity(filepath, expectedHash);
+    return isValid ? 0 : 1;
 }
