@@ -128,4 +128,94 @@ int main() {
     }
     
     return 0;
-}
+}#include <filesystem>
+#include <chrono>
+#include <thread>
+#include <unordered_map>
+#include <string>
+#include <functional>
+#include <iostream>
+
+namespace fs = std::filesystem;
+
+class FileSystemWatcher {
+public:
+    using Callback = std::function<void(const fs::path&, const std::string&)>;
+
+    FileSystemWatcher(const fs::path& watch_path, Callback callback)
+        : watch_path_(watch_path), callback_(callback), running_(false) {
+        if (!fs::exists(watch_path_)) {
+            throw std::runtime_error("Watch path does not exist");
+        }
+        scan_files();
+    }
+
+    ~FileSystemWatcher() {
+        stop();
+    }
+
+    void start() {
+        running_ = true;
+        monitor_thread_ = std::thread(&FileSystemWatcher::monitor, this);
+    }
+
+    void stop() {
+        running_ = false;
+        if (monitor_thread_.joinable()) {
+            monitor_thread_.join();
+        }
+    }
+
+private:
+    fs::path watch_path_;
+    Callback callback_;
+    std::unordered_map<std::string, fs::file_time_type> file_timestamps_;
+    bool running_;
+    std::thread monitor_thread_;
+
+    void scan_files() {
+        file_timestamps_.clear();
+        for (const auto& entry : fs::recursive_directory_iterator(watch_path_)) {
+            if (entry.is_regular_file()) {
+                auto path = entry.path();
+                auto timestamp = fs::last_write_time(path);
+                file_timestamps_[path.string()] = timestamp;
+            }
+        }
+    }
+
+    void monitor() {
+        while (running_) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+
+            for (const auto& entry : fs::recursive_directory_iterator(watch_path_)) {
+                if (!entry.is_regular_file()) continue;
+
+                auto path = entry.path();
+                auto current_time = fs::last_write_time(path);
+                auto path_str = path.string();
+
+                auto it = file_timestamps_.find(path_str);
+                if (it == file_timestamps_.end()) {
+                    file_timestamps_[path_str] = current_time;
+                    if (callback_) callback_(path, "created");
+                } else if (it->second != current_time) {
+                    it->second = current_time;
+                    if (callback_) callback_(path, "modified");
+                }
+            }
+
+            std::vector<std::string> to_remove;
+            for (const auto& [path_str, timestamp] : file_timestamps_) {
+                if (!fs::exists(path_str)) {
+                    to_remove.push_back(path_str);
+                }
+            }
+
+            for (const auto& path_str : to_remove) {
+                file_timestamps_.erase(path_str);
+                if (callback_) callback_(fs::path(path_str), "deleted");
+            }
+        }
+    }
+};
