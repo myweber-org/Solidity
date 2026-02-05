@@ -98,3 +98,87 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+#include <iostream>
+#include <filesystem>
+#include <chrono>
+#include <thread>
+#include <unordered_map>
+#include <string>
+
+namespace fs = std::filesystem;
+
+class FileSystemWatcher {
+public:
+    explicit FileSystemWatcher(const std::string& path) : watch_path(path) {
+        if (fs::exists(path) && fs::is_directory(path)) {
+            populate_snapshot();
+        }
+    }
+
+    void start_watching(int interval_seconds = 2) {
+        std::cout << "Watching directory: " << watch_path << std::endl;
+        while (running) {
+            std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
+            check_for_changes();
+        }
+    }
+
+    void stop_watching() {
+        running = false;
+    }
+
+private:
+    std::string watch_path;
+    std::unordered_map<std::string, fs::file_time_type> file_snapshot;
+    bool running = true;
+
+    void populate_snapshot() {
+        file_snapshot.clear();
+        for (const auto& entry : fs::recursive_directory_iterator(watch_path)) {
+            if (fs::is_regular_file(entry.path())) {
+                file_snapshot[entry.path().string()] = fs::last_write_time(entry.path());
+            }
+        }
+    }
+
+    void check_for_changes() {
+        std::unordered_map<std::string, fs::file_time_type> current_state;
+
+        for (const auto& entry : fs::recursive_directory_iterator(watch_path)) {
+            if (fs::is_regular_file(entry.path())) {
+                std::string file_path = entry.path().string();
+                auto last_write = fs::last_write_time(entry.path());
+                current_state[file_path] = last_write;
+
+                auto it = file_snapshot.find(file_path);
+                if (it == file_snapshot.end()) {
+                    std::cout << "[ADDED] " << file_path << std::endl;
+                } else if (it->second != last_write) {
+                    std::cout << "[MODIFIED] " << file_path << std::endl;
+                }
+            }
+        }
+
+        for (const auto& [old_file, _] : file_snapshot) {
+            if (current_state.find(old_file) == current_state.end()) {
+                std::cout << "[DELETED] " << old_file << std::endl;
+            }
+        }
+
+        file_snapshot = std::move(current_state);
+    }
+};
+
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <directory_path>" << std::endl;
+        return 1;
+    }
+
+    std::string path_to_watch = argv[1];
+    FileSystemWatcher watcher(path_to_watch);
+
+    watcher.start_watching();
+
+    return 0;
+}
