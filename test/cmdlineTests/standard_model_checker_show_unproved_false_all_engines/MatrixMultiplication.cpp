@@ -15,7 +15,7 @@ std::vector<std::vector<double>> generateRandomMatrix(int rows, int cols) {
     return matrix;
 }
 
-std::vector<std::vector<double>> multiplyMatrices(
+std::vector<std::vector<double>> multiplyMatricesParallel(
     const std::vector<std::vector<double>>& A,
     const std::vector<std::vector<double>>& B) {
     
@@ -44,22 +44,19 @@ void printMatrixStats(const std::vector<std::vector<double>>& matrix) {
     double minVal = matrix[0][0];
     double maxVal = matrix[0][0];
     
-    #pragma omp parallel for reduction(+:sum) reduction(min:minVal) reduction(max:maxVal) collapse(2)
-    for (size_t i = 0; i < matrix.size(); ++i) {
-        for (size_t j = 0; j < matrix[i].size(); ++j) {
-            double val = matrix[i][j];
+    for (const auto& row : matrix) {
+        for (double val : row) {
             sum += val;
             if (val < minVal) minVal = val;
             if (val > maxVal) maxVal = val;
         }
     }
     
-    std::cout << "Matrix statistics:" << std::endl;
-    std::cout << "  Size: " << matrix.size() << "x" << matrix[0].size() << std::endl;
-    std::cout << "  Sum: " << sum << std::endl;
-    std::cout << "  Min: " << minVal << std::endl;
-    std::cout << "  Max: " << maxVal << std::endl;
-    std::cout << "  Average: " << sum / (matrix.size() * matrix[0].size()) << std::endl;
+    std::cout << "Matrix Statistics:\n";
+    std::cout << "  Sum: " << sum << "\n";
+    std::cout << "  Min: " << minVal << "\n";
+    std::cout << "  Max: " << maxVal << "\n";
+    std::cout << "  Avg: " << sum / (matrix.size() * matrix[0].size()) << "\n";
 }
 
 int main() {
@@ -69,18 +66,16 @@ int main() {
     const int M = 500;
     const int P = 500;
     
-    std::cout << "Generating random matrices..." << std::endl;
+    std::cout << "Generating random matrices of size " << N << "x" << M << " and " << M << "x" << P << "...\n";
     auto matrixA = generateRandomMatrix(N, M);
     auto matrixB = generateRandomMatrix(M, P);
     
-    std::cout << "Performing matrix multiplication..." << std::endl;
+    std::cout << "Performing parallel matrix multiplication...\n";
     double startTime = omp_get_wtime();
-    
-    auto result = multiplyMatrices(matrixA, matrixB);
-    
+    auto result = multiplyMatricesParallel(matrixA, matrixB);
     double endTime = omp_get_wtime();
-    std::cout << "Multiplication completed in " << (endTime - startTime) << " seconds" << std::endl;
     
+    std::cout << "Multiplication completed in " << (endTime - startTime) << " seconds\n";
     printMatrixStats(result);
     
     return 0;
