@@ -110,4 +110,77 @@ int main() {
     }
 
     return 0;
+}#include <iostream>
+#include <filesystem>
+#include <chrono>
+#include <thread>
+#include <unordered_set>
+
+namespace fs = std::filesystem;
+
+class FileSystemWatcher {
+private:
+    fs::path path_to_watch;
+    std::unordered_set<std::string> current_files;
+    bool running = false;
+
+    void scan_directory() {
+        std::unordered_set<std::string> new_files;
+        for (const auto& entry : fs::directory_iterator(path_to_watch)) {
+            if (entry.is_regular_file()) {
+                new_files.insert(entry.path().filename().string());
+            }
+        }
+
+        for (const auto& file : new_files) {
+            if (current_files.find(file) == current_files.end()) {
+                std::cout << "File added: " << file << std::endl;
+            }
+        }
+
+        for (const auto& file : current_files) {
+            if (new_files.find(file) == new_files.end()) {
+                std::cout << "File removed: " << file << std::endl;
+            }
+        }
+
+        current_files = std::move(new_files);
+    }
+
+public:
+    explicit FileSystemWatcher(const std::string& path) : path_to_watch(path) {
+        if (!fs::exists(path_to_watch) || !fs::is_directory(path_to_watch)) {
+            throw std::runtime_error("Invalid directory path");
+        }
+        scan_directory();
+    }
+
+    void start_watching(int interval_seconds = 2) {
+        running = true;
+        std::cout << "Watching directory: " << path_to_watch << std::endl;
+
+        while (running) {
+            std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
+            try {
+                scan_directory();
+            } catch (const std::exception& e) {
+                std::cerr << "Error scanning directory: " << e.what() << std::endl;
+            }
+        }
+    }
+
+    void stop_watching() {
+        running = false;
+    }
+};
+
+int main() {
+    try {
+        FileSystemWatcher watcher(".");
+        watcher.start_watching();
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to start watcher: " << e.what() << std::endl;
+        return 1;
+    }
+    return 0;
 }
