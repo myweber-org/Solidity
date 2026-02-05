@@ -1,93 +1,90 @@
+
 #include <iostream>
 #include <filesystem>
-#include <thread>
 #include <chrono>
-#include <unordered_set>
-#include <atomic>
+#include <thread>
+#include <unordered_map>
+#include <string>
 
 namespace fs = std::filesystem;
 
-class FileSystemWatcher {
+class SimpleFileWatcher {
 public:
-    FileSystemWatcher(const fs::path& path) : watch_path(path), running(false) {
-        if (!fs::exists(path) || !fs::is_directory(path)) {
-            throw std::runtime_error("Path does not exist or is not a directory");
+    SimpleFileWatcher(const std::string& path) : watch_path(path), running(false) {
+        if (fs::exists(path) && fs::is_directory(path)) {
+            build_snapshot();
         }
-        update_snapshot();
     }
 
-    ~FileSystemWatcher() {
-        stop();
-    }
-
-    void start() {
+    void start_watching(int interval_seconds = 1) {
         running = true;
-        watcher_thread = std::thread(&FileSystemWatcher::watch_loop, this);
+        std::cout << "Watching directory: " << watch_path << std::endl;
+        
+        while (running) {
+            std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
+            check_for_changes();
+        }
     }
 
-    void stop() {
+    void stop_watching() {
         running = false;
-        if (watcher_thread.joinable()) {
-            watcher_thread.join();
-        }
     }
 
 private:
-    fs::path watch_path;
-    std::atomic<bool> running;
-    std::thread watcher_thread;
-    std::unordered_set<std::string> file_snapshot;
-
-    void update_snapshot() {
-        file_snapshot.clear();
-        for (const auto& entry : fs::directory_iterator(watch_path)) {
+    void build_snapshot() {
+        snapshot.clear();
+        for (const auto& entry : fs::recursive_directory_iterator(watch_path)) {
             if (entry.is_regular_file()) {
-                file_snapshot.insert(entry.path().filename().string());
+                auto last_write = fs::last_write_time(entry.path());
+                snapshot[entry.path().string()] = last_write;
             }
         }
     }
 
-    void watch_loop() {
-        while (running) {
-            std::this_thread::sleep_for(std::chrono::seconds(2));
+    void check_for_changes() {
+        std::unordered_map<std::string, fs::file_time_type> current_snapshot;
+        
+        for (const auto& entry : fs::recursive_directory_iterator(watch_path)) {
+            if (entry.is_regular_file()) {
+                auto path_str = entry.path().string();
+                auto last_write = fs::last_write_time(entry.path());
+                current_snapshot[path_str] = last_write;
 
-            std::unordered_set<std::string> current_files;
-            for (const auto& entry : fs::directory_iterator(watch_path)) {
-                if (entry.is_regular_file()) {
-                    current_files.insert(entry.path().filename().string());
+                auto old_it = snapshot.find(path_str);
+                if (old_it == snapshot.end()) {
+                    std::cout << "[NEW] " << path_str << std::endl;
+                } else if (old_it->second != last_write) {
+                    std::cout << "[MODIFIED] " << path_str << std::endl;
                 }
             }
-
-            for (const auto& file : current_files) {
-                if (file_snapshot.find(file) == file_snapshot.end()) {
-                    std::cout << "New file detected: " << file << std::endl;
-                }
-            }
-
-            for (const auto& file : file_snapshot) {
-                if (current_files.find(file) == current_files.end()) {
-                    std::cout << "File removed: " << file << std::endl;
-                }
-            }
-
-            file_snapshot = std::move(current_files);
         }
+
+        for (const auto& old_entry : snapshot) {
+            if (current_snapshot.find(old_entry.first) == current_snapshot.end()) {
+                std::cout << "[DELETED] " << old_entry.first << std::endl;
+            }
+        }
+
+        snapshot = std::move(current_snapshot);
     }
+
+    std::string watch_path;
+    std::unordered_map<std::string, fs::file_time_type> snapshot;
+    bool running;
 };
 
 int main() {
-    try {
-        FileSystemWatcher watcher(".");
-        watcher.start();
+    SimpleFileWatcher watcher(".");
+    
+    std::thread watch_thread([&watcher]() {
+        watcher.start_watching(2);
+    });
 
-        std::cout << "Watching current directory. Press Enter to stop..." << std::endl;
-        std::cin.get();
-
-        watcher.stop();
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return 1;
-    }
-
+    std::cout << "File watcher started. Press Enter to stop..." << std::endl;
+    std::cin.get();
+    
+    watcher.stop_watching();
+    watch_thread.join();
+    
     return 0;
 }
