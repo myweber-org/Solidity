@@ -117,3 +117,72 @@ int main(int argc, char* argv[]) {
     fs::path filePath(argv[1]);
     return renameFileWithTimestamp(filePath) ? 0 : 1;
 }
+#include <iostream>
+#include <filesystem>
+#include <vector>
+#include <algorithm>
+
+namespace fs = std::filesystem;
+
+class FileRenamer {
+public:
+    FileRenamer(const std::string& directory, const std::string& prefix)
+        : m_directory(directory), m_prefix(prefix) {}
+
+    bool renameFiles() {
+        std::vector<fs::path> files;
+        
+        try {
+            for (const auto& entry : fs::directory_iterator(m_directory)) {
+                if (fs::is_regular_file(entry.status())) {
+                    files.push_back(entry.path());
+                }
+            }
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Error accessing directory: " << e.what() << std::endl;
+            return false;
+        }
+
+        if (files.empty()) {
+            std::cout << "No files found in directory." << std::endl;
+            return true;
+        }
+
+        std::sort(files.begin(), files.end());
+
+        int counter = 1;
+        for (const auto& oldPath : files) {
+            std::string extension = oldPath.extension().string();
+            std::string newFilename = m_prefix + "_" + std::to_string(counter) + extension;
+            fs::path newPath = oldPath.parent_path() / newFilename;
+
+            try {
+                fs::rename(oldPath, newPath);
+                std::cout << "Renamed: " << oldPath.filename() << " -> " << newFilename << std::endl;
+                counter++;
+            } catch (const fs::filesystem_error& e) {
+                std::cerr << "Failed to rename " << oldPath.filename() << ": " << e.what() << std::endl;
+            }
+        }
+
+        return true;
+    }
+
+private:
+    std::string m_directory;
+    std::string m_prefix;
+};
+
+int main(int argc, char* argv[]) {
+    if (argc != 3) {
+        std::cout << "Usage: " << argv[0] << " <directory> <prefix>" << std::endl;
+        return 1;
+    }
+
+    FileRenamer renamer(argv[1], argv[2]);
+    if (!renamer.renameFiles()) {
+        return 1;
+    }
+
+    return 0;
+}
