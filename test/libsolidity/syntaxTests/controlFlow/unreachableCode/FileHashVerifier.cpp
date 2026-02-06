@@ -1,26 +1,27 @@
+
 #include <iostream>
 #include <fstream>
-#include <sstream>
 #include <iomanip>
+#include <sstream>
 #include <vector>
 #include <openssl/sha.h>
 
-std::string computeSHA256(const std::string& filepath) {
+std::string calculateSHA256(const std::string& filepath) {
     std::ifstream file(filepath, std::ios::binary);
     if (!file) {
         throw std::runtime_error("Cannot open file: " + filepath);
     }
 
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
+    SHA256_CTX shaContext;
+    SHA256_Init(&shaContext);
 
     std::vector<char> buffer(4096);
     while (file.read(buffer.data(), buffer.size()) || file.gcount()) {
-        SHA256_Update(&sha256, buffer.data(), file.gcount());
+        SHA256_Update(&shaContext, buffer.data(), file.gcount());
     }
 
     unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_Final(hash, &sha256);
+    SHA256_Final(hash, &shaContext);
 
     std::ostringstream oss;
     oss << std::hex << std::setfill('0');
@@ -30,9 +31,9 @@ std::string computeSHA256(const std::string& filepath) {
     return oss.str();
 }
 
-bool verifyFileHash(const std::string& filepath, const std::string& expectedHash) {
+bool verifyFileIntegrity(const std::string& filepath, const std::string& expectedHash) {
     try {
-        std::string computedHash = computeSHA256(filepath);
+        std::string computedHash = calculateSHA256(filepath);
         return computedHash == expectedHash;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
@@ -49,11 +50,11 @@ int main(int argc, char* argv[]) {
     std::string filepath = argv[1];
     std::string expectedHash = argv[2];
 
-    if (verifyFileHash(filepath, expectedHash)) {
-        std::cout << "File hash verification SUCCESS." << std::endl;
+    if (verifyFileIntegrity(filepath, expectedHash)) {
+        std::cout << "File integrity verified. Hashes match." << std::endl;
         return 0;
     } else {
-        std::cout << "File hash verification FAILED." << std::endl;
+        std::cout << "File integrity check failed. Hashes do not match." << std::endl;
         return 1;
     }
 }
