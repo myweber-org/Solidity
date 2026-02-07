@@ -84,3 +84,101 @@ int main() {
     
     return 0;
 }
+#include <iostream>
+#include <vector>
+#include <chrono>
+#include <random>
+#include <omp.h>
+
+std::vector<std::vector<double>> generate_random_matrix(size_t rows, size_t cols) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(0.0, 100.0);
+
+    std::vector<std::vector<double>> matrix(rows, std::vector<double>(cols));
+    for (size_t i = 0; i < rows; ++i) {
+        for (size_t j = 0; j < cols; ++j) {
+            matrix[i][j] = dis(gen);
+        }
+    }
+    return matrix;
+}
+
+std::vector<std::vector<double>> multiply_matrices_parallel(
+    const std::vector<std::vector<double>>& A,
+    const std::vector<std::vector<double>>& B) {
+
+    size_t rows_A = A.size();
+    size_t cols_A = A[0].size();
+    size_t cols_B = B[0].size();
+
+    std::vector<std::vector<double>> result(rows_A, std::vector<double>(cols_B, 0.0));
+
+    #pragma omp parallel for collapse(2)
+    for (size_t i = 0; i < rows_A; ++i) {
+        for (size_t j = 0; j < cols_B; ++j) {
+            double sum = 0.0;
+            for (size_t k = 0; k < cols_A; ++k) {
+                sum += A[i][k] * B[k][j];
+            }
+            result[i][j] = sum;
+        }
+    }
+    return result;
+}
+
+std::vector<std::vector<double>> multiply_matrices_sequential(
+    const std::vector<std::vector<double>>& A,
+    const std::vector<std::vector<double>>& B) {
+
+    size_t rows_A = A.size();
+    size_t cols_A = A[0].size();
+    size_t cols_B = B[0].size();
+
+    std::vector<std::vector<double>> result(rows_A, std::vector<double>(cols_B, 0.0));
+
+    for (size_t i = 0; i < rows_A; ++i) {
+        for (size_t j = 0; j < cols_B; ++j) {
+            double sum = 0.0;
+            for (size_t k = 0; k < cols_A; ++k) {
+                sum += A[i][k] * B[k][j];
+            }
+            result[i][j] = sum;
+        }
+    }
+    return result;
+}
+
+int main() {
+    const size_t N = 500;
+    auto matrix_A = generate_random_matrix(N, N);
+    auto matrix_B = generate_random_matrix(N, N);
+
+    auto start = std::chrono::high_resolution_clock::now();
+    auto result_seq = multiply_matrices_sequential(matrix_A, matrix_B);
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration_seq = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    std::cout << "Sequential multiplication time: " << duration_seq.count() << " ms\n";
+
+    start = std::chrono::high_resolution_clock::now();
+    auto result_par = multiply_matrices_parallel(matrix_A, matrix_B);
+    end = std::chrono::high_resolution_clock::now();
+    auto duration_par = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    std::cout << "Parallel multiplication time: " << duration_par.count() << " ms\n";
+
+    double speedup = static_cast<double>(duration_seq.count()) / duration_par.count();
+    std::cout << "Speedup factor: " << speedup << "\n";
+
+    bool results_match = true;
+    for (size_t i = 0; i < N && results_match; ++i) {
+        for (size_t j = 0; j < N; ++j) {
+            if (std::abs(result_seq[i][j] - result_par[i][j]) > 1e-6) {
+                results_match = false;
+                break;
+            }
+        }
+    }
+    std::cout << "Results match: " << (results_match ? "true" : "false") << "\n";
+
+    return 0;
+}
