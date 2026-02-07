@@ -91,3 +91,80 @@ int main() {
 
     return 0;
 }
+#include <iostream>
+#include <filesystem>
+#include <chrono>
+#include <thread>
+#include <unordered_map>
+#include <string>
+
+namespace fs = std::filesystem;
+
+class FileSystemWatcher {
+public:
+    explicit FileSystemWatcher(const std::string& path) : watch_path(path) {
+        if (fs::exists(path) && fs::is_directory(path)) {
+            refresh_snapshot();
+        } else {
+            std::cerr << "Path does not exist or is not a directory: " << path << std::endl;
+        }
+    }
+
+    void start_watching(int interval_seconds = 1) {
+        std::cout << "Watching directory: " << watch_path << std::endl;
+        while (running) {
+            std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
+            check_for_changes();
+        }
+    }
+
+    void stop_watching() {
+        running = false;
+    }
+
+private:
+    std::string watch_path;
+    std::unordered_map<std::string, fs::file_time_type> file_snapshot;
+    bool running = true;
+
+    void refresh_snapshot() {
+        file_snapshot.clear();
+        for (const auto& entry : fs::recursive_directory_iterator(watch_path)) {
+            if (fs::is_regular_file(entry.path())) {
+                file_snapshot[entry.path().string()] = fs::last_write_time(entry.path());
+            }
+        }
+    }
+
+    void check_for_changes() {
+        auto current_state = file_snapshot;
+        refresh_snapshot();
+
+        for (const auto& [path, old_time] : current_state) {
+            auto it = file_snapshot.find(path);
+            if (it == file_snapshot.end()) {
+                std::cout << "File deleted: " << path << std::endl;
+            } else if (it->second != old_time) {
+                std::cout << "File modified: " << path << std::endl;
+            }
+        }
+
+        for (const auto& [path, new_time] : file_snapshot) {
+            if (current_state.find(path) == current_state.end()) {
+                std::cout << "File created: " << path << std::endl;
+            }
+        }
+    }
+};
+
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <directory_path>" << std::endl;
+        return 1;
+    }
+
+    FileSystemWatcher watcher(argv[1]);
+    watcher.start_watching(2);
+
+    return 0;
+}
